@@ -1,0 +1,2744 @@
+﻿ОГЛАВЛЕНИЕ
+01. Абилимпикс 2026 — рабочая последовательность
+02. R2 — сначала обновление, затем сеть
+03. Быстрые шаги Ideco23 и GRE/OSPF
+04. Альт и FreeIPA — рабочая последовательность
+05. Быстрые шаги Ideco23 и FreeIPA
+06. Кибер Бэкап: короткий рабочий порядок
+07. Камеры: короткий рабочий порядок
+08. ZoneMinder: краткая рабочая последовательность
+09. Принтер: короткий рабочий порядок
+10. Итог R2 — проверка без повторной прошивки
+
+Для перехода в TXT используй поиск по точному заголовку. Команды расположены между метками БЛОК и КОНЕЦ БЛОКА; сами метки в терминал не вставляются.
+
+Абилимпикс 2026 — рабочая методичка
+===================================
+
+Редакция 2026-11-01.
+
+
+Абилимпикс 2026 — рабочая последовательность
+============================================
+
+Редакция 1 ноября 2026. Альт 10.4 · OpenWrt 25.12.6 учебной VM · Ideco 23.4.40 · FreeIPA 4.9.14 · ZoneMinder 1.36.34 · Кибер Бэкап 18.6.
+
+Порядок: устройство и место → действие/вставка → одна проверка. В SSH-сеансе смотрите приглашение: root@srv, root@r2 или локальный root@admin.
+
+R2: копируйте по одной строке, без конечного Enter; затем нажимайте Enter вручную. Если вставка оборвалась или появилось >, Ctrl+C и повторить только эту команду. Для FRR сначала vtysh; uci вводится в обычной оболочке. На Альт блок <<'EOF' вставляется целиком до EOF.
+
+
+Узел | Адрес и имя
+R2 | r2.au-team.abi; ADMIN 172.16.120.1/24; PRINT 172.16.100.1/24; GRE 10.10.10.2/30
+FW | fw.au-team.abi; CAM 172.16.10.1/24; SRV 172.16.110.254/24; GRE 10.10.10.1/30
+WAN | DHCP; текущие примеры R2=192.0.2.10, FW=192.0.2.151
+ADMIN | admin.au-team.abi, DHCP 172.16.120.10–200; текущий пример 172.16.120.86; шлюз/DNS 172.16.120.1; суффикс au-team.abi
+SRV | srv.au-team.abi, 172.16.110.50/24, шлюз 172.16.110.254
+CAM1 / CAM2 | cam1.au-team.abi=172.16.10.10; cam2.au-team.abi=172.16.10.20; /24, шлюз 172.16.10.1
+PRINT | print.au-team.abi=172.16.100.100/24, шлюз 172.16.100.1
+Домен и основная DNS-зона | au-team.abi; realm AU-TEAM.ABI; DNS-forwarder 77.88.8.8
+Видео | video.au-team.abi A→172.16.110.50; http://video.au-team.abi/zm/
+Панели | Ideco https://192.0.2.151:8443; Кибер Бэкап http://srv.au-team.abi:9877
+
+
+Текущий DHCP-адрес ADMIN определять перед DNS-операциями; .86 — пример. Для LAN CAM/SRV используется /24, для GRE /30. Часовой пояс — Europe/Moscow.
+
+120 минут: 0–8 обновление/порты R2 → 8–20 VLAN/DHCP/NAT → 20–32 FW/интернет → 32–47 GRE/OSPF → 47–72 FreeIPA/DNS/авторизация → 72–90 Кибер Бэкап → 90–109 камеры/видео → 109–116 печать → 116–120 проверки. Загрузки начать при появлении интернета; выполнять независимые этапы параллельно.
+
+В новых иллюстрациях Ideco показана версия 23 текущего стенда. Снимки LuCI 25.12.6 относятся к отдельной тестовой VM 31 октября. Самостоятельную прошивку уже обновлённого R2 пропускайте. Для аппаратного ASUS нужен образ именно его модели, а не x86-образ учебной VM.
+
+Все FQDN уточнены по таблице задания: *.au-team.abi. На прежних снимках могут оставаться старые имена; вводите имена из команд и таблицы этой редакции. Порядок установки FreeIPA рассчитан на чистый старт. Уже установленный сервер с прежним FQDN нельзя переименовывать простым повторением этих команд: потребуется отдельный перенос с учётом сертификатов и Kerberos.
+
+—————————————————————————————————————————————
+
+
+R2 — сначала обновление, затем сеть
+===================================
+
+ADMIN → Firefox в Альт; команды R2 → SSH из терминала Альт. Рабочая версия форм — OpenWrt 25.12.6. Копируй по одной строке или короткому блоку; при оборванной вставке Ctrl+C, затем повтори только эту строку.
+
+Единый домен всех устройств — au-team.abi; FQDN R2 — r2.au-team.abi. Старые имена, видимые на сохранённых снимках ниже, относятся к историческому состоянию. Новые значения бери из текста.
+
+
+1. Обновление до настройки
+--------------------------
+
+R2 → SSH:
+
+
+[БЛОК 001 | sh; место ввода указано перед блоком]
+ubus call system board
+cat /etc/openwrt_release
+[КОНЕЦ БЛОКА 001]
+
+
+Если учебная VM уже в 25.12.6 — прошивку пропусти. Для физического ASUS выбери точную модель/ревизию в Firmware Selector; учебная VM использует отдельную сборку со switch0.
+
+ADMIN → Firefox → LuCI → System → Backup / Flash Firmware: скачать архив → выбрать подходящий sysupgrade → сверить SHA256/профиль → штатно записать → дождаться перезагрузки. Режим Keep settings выбирается по совместимости перехода и требованию чистого начала. Обновление выполняется до VLAN/DHCP/NAT.
+
+Проверка: новая версия в Status → Overview. При расхождении прочитай /etc/openwrt_release.
+
+
+2. Switch0
+----------
+
+Firefox → Network → Switch. Порты учебной модели: WAN 0, LAN 1–4, CPU 6. На аппаратном ASUS сопоставь номера с разъёмами по линку.
+
+
+VLAN | CPU6 | WAN0 | LAN1 | LAN2 | LAN3 | LAN4
+2 | tagged | untagged | off | off | off | off
+100 | tagged | off | off | off | off | untagged
+120 | tagged | off | untagged | off | off | off
+
+
+Нажми Save; общее Apply — после адресов и DHCP.
+
+[Скриншот: LuCI 25.12.6: матрица switch0; assets/image-9e8007589d809dc5b2.jpg]
+
+Проверка: CPU tagged во всех трёх VLAN.
+
+
+3. Интерфейсы
+-------------
+
+Firefox → Network → Interfaces → Devices → br-lan → Configure: Bridge ports = eth0.120.
+
+[Скриншот: LuCI 25.12.6: выбрать eth0.120 в Bridge ports; assets/image-09a5ae0cfc332a118d.jpg]
+
+Interfaces → lan → Edit: Static address, Device br-lan, 172.16.120.1/24, gateway пусто.
+
+Add new interface: print, Static address, Device eth0.100, 172.16.100.1/24, gateway пусто, DHCP выключен.
+
+[Скриншот: LuCI 25.12.6: параметры отдельного интерфейса PRINT; assets/image-35179f2cec4d2ceac0.jpg]
+
+wan → Edit: DHCP client, eth0.2.
+
+Проверка: PRINT не включён в br-lan.
+
+
+4. DHCP
+-------
+
+lan → Edit → DHCP Server → General Setup: Ignore interface off; Dynamic DHCP on; Lease 12h; две строки DHCP-Options: 6,172.16.120.1 и 15,au-team.abi.
+
+DHCP Server → IPv4 Settings: DHCPv4 Service enabled, Start 10, Limit 191. Это диапазон .10–.200.
+
+[Скриншот: LuCI 25.12.6: DHCPv4 Service, Start и Limit; assets/image-4e859f2a8ac313b613.jpg]
+
+Проверка: обе вкладки заполнены, затем Save & Apply.
+
+
+5. Обновить ADMIN
+-----------------
+
+ADMIN → локальный терминал root:
+
+
+[БЛОК 002 | sh; место ввода указано перед блоком]
+nmcli -f NAME,DEVICE con show --active
+[КОНЕЦ БЛОКА 002]
+
+
+Для фактического имени подключения из вывода; пример:
+
+
+[БЛОК 003 | sh; место ввода указано перед блоком]
+nmcli con down 'System enp6s18'
+nmcli con up 'System enp6s18'
+[КОНЕЦ БЛОКА 003]
+
+
+Открой http://172.16.120.1.
+
+Проверка: ip -4 addr show enp6s18 — адрес 172.16.120.10–200/24.
+
+
+6. Зоны и NAT
+-------------
+
+Firefox → Network → Firewall → Zones:
+
+
+Зона | Networks | Input/Output/Forward | NAT
+ADMINS | lan | ACCEPT/ACCEPT/ACCEPT | off
+print | print | REJECT/ACCEPT/REJECT | off
+wan | wan | REJECT/ACCEPT/REJECT | on
+
+
+Разреши ADMINS → wan и ADMINS → print. В wan → Advanced Settings ограничь маскарадинг источником 172.16.120.0/24.
+
+[Скриншот: LuCI 25.12.6: ограничение исходной сети NAT; assets/image-003d14f3ddc658c478.jpg]
+
+Все пять снимков этой главы — сохранённые формы отдельной тестовой OpenWrt 25.12.6 от 31 октября. Имена на них исторические; правильное новое имя роутера — r2.au-team.abi. Расположение полей сохраняет смысл, значения проверяй на своём R2.
+
+R2 → SSH, проверка:
+
+
+[БЛОК 004 | sh; место ввода указано перед блоком]
+fw4 check
+[КОНЕЦ БЛОКА 004]
+
+
+
+7. Имя и пакеты
+---------------
+
+R2 → SSH:
+
+
+[БЛОК 005 | sh; место ввода указано перед блоком]
+uci set system.@system[0].hostname='r2.au-team.abi'
+uci commit system
+hostname r2.au-team.abi
+[КОНЕЦ БЛОКА 005]
+
+
+Первое действие сохраняет имя в OpenWrt, последнее применяет его сейчас. Для локальных DHCP/DNS-имён:
+
+
+[БЛОК 006 | sh; место ввода указано перед блоком]
+uci set dhcp.@dnsmasq[0].domain='au-team.abi'
+uci commit dhcp
+/etc/init.d/dnsmasq reload
+[КОНЕЦ БЛОКА 006]
+
+
+Проверка: hostname возвращает r2.au-team.abi, а uci get dhcp.@dnsmasq[0].domain — au-team.abi. В этапе FreeIPA используется одна прямая зона; вторую зону и дублирующие forward/rebind не добавляй.
+
+
+[БЛОК 007 | sh; место ввода указано перед блоком]
+apk --version
+ubus call network.interface.wan status
+[КОНЕЦ БЛОКА 007]
+
+
+Пакеты устанавливаются через apk; конкретные GRE/FRR пакеты — на этапе туннеля.
+
+Проверка с ADMIN:
+
+
+[БЛОК 008 | sh; место ввода указано перед блоком]
+ping -c 3 -W 2 1.1.1.1
+[КОНЕЦ БЛОКА 008]
+
+
+
+8. После GRE — доступ к конечным устройствам
+--------------------------------------------
+
+Правило ADMINS-SRV разрешает только 172.16.120.0/24 → 172.16.110.50 через GRE. Оно не открывает камеры.
+
+Для настройки камер из ADMIN добавь в R2 Traffic Rules отдельное ADMIN-CAM-WEB: Source ADMINS / 172.16.120.0/24, Destination GRE / 172.16.10.10 и 172.16.10.20, TCP 80 и 443, ACCEPT, IPv4. Для ping — отдельное правило ICMP echo-request с теми же адресами. На Ideco также разрешается нужный путь GRE → CAM.
+
+Проверка: Firefox ADMIN открывает обе камеры по их фактическим адресам.
+
+—————————————————————————————————————————————
+
+
+Быстрые шаги Ideco23 и GRE/OSPF
+===============================
+
+
+FW: WAN
+-------
+
+Место: локальное меню noVNC FW → управление сетевыми интерфейсами.
+
+Действие: существующий порт провайдера → Ethernet → имя WAN → роль WAN → Системный контекст → DHCP → включить. В локальном меню управления сервером включить внешний веб-доступ. На ADMIN открыть Firefox → https://192.0.2.151:8443 (текущий WAN FW).
+
+Проверка: панель доступна по WAN, версия 23.4.40.
+
+
+FW: LAN
+-------
+
+Место: Firefox ADMIN → Ideco → Системный контекст → Сервисы → Сетевые интерфейсы → Интерфейсы Data Plane → Добавить → Ethernet.
+
+Действие: CAM, роль LAN, 172.16.10.1/24, порт камер; SRV, роль LAN, 172.16.110.254/24, порт сервера. Включить и сохранить.
+
+[Скриншот: Ideco23: где открыть WAN и CAM; assets/image-6e33fd8ba0dac57455.jpg]
+
+1 ноября 2026: Интерфейсы Data Plane; в текущем стенде имена WAN, CAM, SRV и GRE-R2.
+
+[Скриншот: Ideco23: поля WAN; assets/image-3378a79c7e96656e27.jpg]
+
+1 ноября 2026: WAN → роль WAN, физический порт eth1_00 данного стенда, DHCP, автоматический MSS, интерфейс включён. Существующий порт сверяется по подключению.
+
+Проверка: оба адреса и выбранные порты видны в списке.
+
+
+FW: интернет
+------------
+
+Место: Firefox ADMIN → Ideco → SD-WAN → Next hop → Добавить.
+
+Действие: ISP-WAN → интерфейс WAN → шлюз DHCP → сохранить. SD-WAN → Профили next hop → Системный профиль → вкладка Next hop → ISP-WAN → вернуться к настройкам профиля → Сохранить.
+
+Проверка: системный профиль показывает рабочий ISP-WAN.
+
+
+FW: DNS
+-------
+
+Место: Firefox ADMIN → Ideco → Сервисы → DNS → Внешние DNS-серверы → Добавить.
+
+Действие: «Использовать DNS, выданные подключению» → WAN → Добавить.
+
+[Скриншот: Ideco23: DNS от WAN; assets/image-1de56d8042eea9e280.jpg]
+
+1 ноября 2026: Внешние DNS-серверы, строка «Выданные подключению»,192.0.2.1,WAN,включено.
+
+Проверка: Управление сервером → Терминал:
+
+
+[БЛОК 009 | sh; место ввода указано перед блоком]
+getent ahostsv4 my.ideco.ru
+[КОНЕЦ БЛОКА 009]
+
+
+
+FW: лицензия
+------------
+
+Место: Firefox ADMIN → Ideco → Управление сервером → Лицензия.
+
+Действие: зарегистрировать этот сервер через MY.IDECO, вернуться и обновить состояние лицензии.
+
+Проверка: сервер зарегистрирован, лицензия действует.
+
+
+FW: временный доступ SRV перед apt-get
+--------------------------------------
+
+Место: Firefox ADMIN → Ideco → Пользователи → Учётные записи → возле Все локальные значок Добавить пользователя.
+
+Действие: имя SRV boot, логин setup-srv, пароль и подтверждение скрыто → Добавить. Пользователи → Авторизация → IP и MAC → Добавить: пользователь SRV boot, IP только 172.16.110.50, включено → Добавить. Административная роль не назначается.
+
+Проверка: SRV → терминал:
+
+
+[БЛОК 010 | sh; место ввода указано перед блоком]
+curl -I --connect-timeout 10 --max-time 20 https://ftp.altlinux.org/
+[КОНЕЦ БЛОКА 010]
+
+
+У SRV boot → Сессии виден IP172.16.110.50. После успешного перехода на coduser старую привязку и сессию отключить, запись/историю сохранить.
+
+
+R2: пакеты GRE и FRR
+--------------------
+
+Место: ADMIN → терминал → SSH root R2, обычная оболочка. Интернет R2 работает.
+
+
+[БЛОК 011 | sh; место ввода указано перед блоком]
+apk update
+apk --simulate add gre luci-proto-gre frr frr-zebra frr-ospfd frr-watchfrr frr-staticd
+[КОНЕЦ БЛОКА 011]
+
+
+После успешного расчёта:
+
+
+[БЛОК 012 | sh; место ввода указано перед блоком]
+apk add gre luci-proto-gre frr frr-zebra frr-ospfd frr-watchfrr frr-staticd
+[КОНЕЦ БЛОКА 012]
+
+
+Проверка:
+
+
+[БЛОК 013 | sh; место ввода указано перед блоком]
+apk info -e gre luci-proto-gre frr frr-zebra frr-ospfd frr-watchfrr frr-staticd
+command -v vtysh
+[КОНЕЦ БЛОКА 013]
+
+
+
+FW: GRE
+-------
+
+Место: Firefox ADMIN → Ideco → Системный контекст → Сервисы → Сетевые интерфейсы → Интерфейсы Data Plane → Добавить → GRE.
+
+Действие: GRE-R2; роль LAN; интерфейс WAN; необязательный локальный IP оставить пустым при DHCP WAN; удалённый 192.0.2.10; внутренний 10.10.10.1/30; MTU 1420; MSS автоматически; включить; сохранить.
+
+[Скриншот: Ideco23: GRE — внешние поля; assets/image-5cb60e3ae69b2e7cf4.jpg]
+
+1 ноября 2026: WAN, локальный IP пустой, peer192.0.2.10, MTU1420, MSS автоматически.
+
+[Скриншот: Ideco23: GRE — внутренний адрес; assets/image-b53754a13116b8d39a.jpg]
+
+1 ноября 2026: внутренний10.10.10.1/30 и «Включить туннель».
+
+Проверка: открыть GRE-R2 заново, сверить внешний peer, привязку WAN и внутренний /30.
+
+
+R2: резервная копия перед GRE
+-----------------------------
+
+Место: ADMIN → терминал → SSH root R2, обычная оболочка.
+
+
+[БЛОК 014 | sh; место ввода указано перед блоком]
+b=/root/before-gre-$(date +%Y%m%d-%H%M%S)
+mkdir -m 700 "$b"
+cp -a /etc/config/network /etc/config/firewall /etc/frr "$b/"
+[КОНЕЦ БЛОКА 014]
+
+
+Проверка:
+
+
+[БЛОК 015 | sh; место ввода указано перед блоком]
+ls -l "$b"
+[КОНЕЦ БЛОКА 015]
+
+
+
+R2: GRE
+-------
+
+Место: SSH root R2, обычная оболочка. Вводить по одной строке.
+
+
+[БЛОК 016 | sh; место ввода указано перед блоком]
+uci set network.grefw=interface
+uci set network.grefw.proto='gre'
+uci set network.grefw.peeraddr='192.0.2.151'
+uci set network.grefw.tunlink='wan'
+uci set network.grefw.ttl='64'
+uci set network.grefw.mtu='1420'
+uci set network.grefw.multicast='1'
+uci set network.tunnel=interface
+uci set network.tunnel.proto='static'
+[КОНЕЦ БЛОКА 016]
+
+
+
+[БЛОК 017 | sh; место ввода указано перед блоком]
+uci set network.tunnel.device='@grefw'
+uci set network.tunnel.ipaddr='10.10.10.2'
+uci set network.tunnel.netmask='255.255.255.252'
+uci set network.tunnel.defaultroute='0'
+[КОНЕЦ БЛОКА 017]
+
+
+Проверка:
+
+
+[БЛОК 018 | sh; место ввода указано перед блоком]
+uci show network.tunnel
+[КОНЕЦ БЛОКА 018]
+
+
+
+R2: зона GRE
+------------
+
+Место: SSH root R2, обычная оболочка.
+
+
+[БЛОК 019 | sh; место ввода указано перед блоком]
+uci set firewall.gre=zone
+uci set firewall.gre.name='GRE'
+uci set firewall.gre.input='REJECT'
+uci set firewall.gre.output='ACCEPT'
+uci set firewall.gre.forward='REJECT'
+uci -q delete firewall.gre.network
+uci add_list firewall.gre.network='grefw'
+uci add_list firewall.gre.network='tunnel'
+[КОНЕЦ БЛОКА 019]
+
+
+Проверка:
+
+
+[БЛОК 020 | sh; место ввода указано перед блоком]
+uci show firewall.gre
+[КОНЕЦ БЛОКА 020]
+
+
+
+R2: внешний GRE от FW
+---------------------
+
+Место: SSH root R2, обычная оболочка.
+
+
+[БЛОК 021 | sh; место ввода указано перед блоком]
+uci set firewall.g1=rule
+uci set firewall.g1.name='Allow-GRE-FW'
+uci set firewall.g1.src='wan'
+uci set firewall.g1.src_ip='192.0.2.151'
+uci set firewall.g1.dest_ip='192.0.2.10'
+uci set firewall.g1.proto='gre'
+uci set firewall.g1.family='ipv4'
+uci set firewall.g1.target='ACCEPT'
+[КОНЕЦ БЛОКА 021]
+
+
+Проверка:
+
+
+[БЛОК 022 | sh; место ввода указано перед блоком]
+uci show firewall.g1
+[КОНЕЦ БЛОКА 022]
+
+
+
+R2: ICMP и OSPF от peer
+-----------------------
+
+Место: SSH root R2, обычная оболочка.
+
+
+[БЛОК 023 | sh; место ввода указано перед блоком]
+uci set firewall.g2=rule
+uci set firewall.g2.name='GRE-peer-ICMP'
+uci set firewall.g2.src='GRE'
+uci set firewall.g2.src_ip='10.10.10.1'
+uci set firewall.g2.proto='icmp'
+uci set firewall.g2.family='ipv4'
+uci set firewall.g2.target='ACCEPT'
+uci set firewall.g3=rule
+uci set firewall.g3.name='GRE-peer-OSPF'
+[КОНЕЦ БЛОКА 023]
+
+
+
+[БЛОК 024 | sh; место ввода указано перед блоком]
+uci set firewall.g3.src='GRE'
+uci set firewall.g3.src_ip='10.10.10.1'
+uci set firewall.g3.proto='89'
+uci set firewall.g3.family='ipv4'
+uci set firewall.g3.target='ACCEPT'
+[КОНЕЦ БЛОКА 024]
+
+
+Проверка:
+
+
+[БЛОК 025 | sh; место ввода указано перед блоком]
+fw4 check
+[КОНЕЦ БЛОКА 025]
+
+
+
+R2: применить GRE
+-----------------
+
+Место: SSH root R2, обычная оболочка, после успешного fw4 check.
+
+
+[БЛОК 026 | sh; место ввода указано перед блоком]
+uci commit network
+uci commit firewall
+/etc/init.d/network reload
+/etc/init.d/firewall reload
+[КОНЕЦ БЛОКА 026]
+
+
+Проверка:
+
+
+[БЛОК 027 | sh; место ввода указано перед блоком]
+ping -c 3 -W 2 -s 1392 10.10.10.1
+[КОНЕЦ БЛОКА 027]
+
+
+
+FW: область и MD5
+-----------------
+
+Место: Firefox ADMIN → Ideco → Маршрутизация → OSPF → Области → Добавить.
+
+Действие: BACKBONE; поле Номер области — целое 0 (area 0.0.0.0); тип Normal; сохранить. Затем Объекты маршрутизации → Цепочки ключей → Добавить → ABI-OSPF-MD5 → Добавить ключ: ID 1, md5, значение abi2026. Сохранить ключ и цепочку.
+
+[Скриншот: Ideco23: номер области0; assets/image-ca3d467caf0e856ee9.jpg]
+
+1 ноября 2026: поле «Номер области» — 0. Вводить строку 0.0.0.0 в это поле не нужно.
+
+[Скриншот: Ideco23: раздел цепочек ключей; assets/image-46172d05b39524a390.jpg]
+
+1 ноября 2026: пункт «Цепочки ключей» внизу раздела «Объекты маршрутизации».
+
+[Скриншот: Ideco23: поля ключа; assets/image-980cf3e7643e04d278.jpg]
+
+1 ноября 2026: Key ID 1, md5, скрытое поле пароля.
+
+Проверка: область и цепочка доступны в списках OSPF-интерфейса.
+
+
+FW: OSPF-интерфейс
+------------------
+
+Место: Firefox ADMIN → Ideco → Маршрутизация → OSPF → Интерфейсы → Добавить.
+
+Действие: GRE-R2; BACKBONE; стоимость 10; point-to-point; пассивный режим выключен; Hello 10; Dead 40; ABI-OSPF-MD5; BFD выключен; интерфейс включён; сохранить.
+
+[Скриншот: Ideco23: GRE-R2 в OSPF; assets/image-d754b4d85018f06f11.jpg]
+
+1 ноября 2026: поля GRE-R2, BACKBONE, point-to-point, Hello10/Dead40, цепочка ABI-OSPF-MD5.
+
+Проверка: Dead 40, не 4000; OSPF-интерфейс только GRE-R2.
+
+
+FW: Prefix list и Route map
+---------------------------
+
+Место: Firefox ADMIN → Ideco → Объекты маршрутизации → Prefix list → Добавить.
+
+Действие: имя ABI-FW-CONNECTED, по умолчанию запрет. Разрешить точные 172.16.10.0/24, 172.16.110.0/24, 10.10.10.0/30; поля Длина префикса → От / До не заполнять. Сохранить. Затем Объекты маршрутизации → Route map → Добавить: ABI-FW-CONNECTED-ONLY, по умолчанию запрет; правило разрешить с Prefix list ABI-FW-CONNECTED, без инверсии; сохранить.
+
+[Скриншот: Ideco23: точный префикс; assets/image-8aa0aa9641ac075daf.jpg]
+
+1 ноября 2026: IP-префикс 172.16.10.0/24, «От»/«До» пусты, правило разрешающее и включённое.
+
+[Скриншот: Ideco23: список Route map; assets/image-2604084819c27e9da8.jpg]
+
+1 ноября 2026: Объекты маршрутизации → Route map. Новую карту создают через «Добавить», существующую открывают по имени.
+
+[Скриншот: Ideco23: нужное условие Route map; assets/image-ae37664d45ce794939.jpg]
+
+1 ноября 2026: Prefix list ABI-FW-CONNECTED, без инверсии, действие «Разрешить»; остальные условия пусты. Сохранить правило, затем карту.
+
+Проверка: три точных префикса разрешены, Route map ссылается на нужный Prefix list.
+
+
+FW: редистрибуция OSPF
+----------------------
+
+Место: Firefox ADMIN → Ideco → Маршрутизация → OSPF → Настройки.
+
+Действие: включить OSPF; Router ID 192.0.2.151; Редистрибуция маршрутов → только Подключённые маршруты / Connected с Route map ABI-FW-CONNECTED-ONLY. Статические маршруты, BGP, EIGRP и оба переключателя анонса default выключены. Фильтр установки маршрутов → Все сети, кроме маршрута по умолчанию. Сохранить.
+
+[Скриншот: Ideco23: Connected с фильтром; assets/image-43234eb4167db24562.jpg]
+
+1 ноября 2026: включены «Подключённые маршруты» и выбрана ABI-FW-CONNECTED-ONLY.
+
+Проверка: Connected использует нужную Route map; WAN и default не объявляются.
+
+
+R2: процесс FRR
+---------------
+
+Место: SSH root R2, обычная оболочка. Пакет frr-ospfd установлен.
+
+
+[БЛОК 028 | sh; место ввода указано перед блоком]
+sed -i 's/^ospfd=.*/ospfd=yes/' /etc/frr/daemons
+/etc/init.d/frr enable
+/etc/init.d/frr restart
+[КОНЕЦ БЛОКА 028]
+
+
+Проверка:
+
+
+[БЛОК 029 | sh; место ввода указано перед блоком]
+grep '^ospfd=' /etc/frr/daemons
+[КОНЕЦ БЛОКА 029]
+
+
+
+R2: OSPF
+--------
+
+Место: SSH root R2 → vtysh; команды по одной строке.
+
+
+[БЛОК 030 | text; место ввода указано перед блоком]
+vtysh
+configure terminal
+router ospf
+ospf router-id 10.10.10.2
+passive-interface default
+network 10.10.10.0/30 area 0
+network 172.16.120.0/24 area 0
+network 172.16.100.0/24 area 0
+exit
+interface gre4-grefw
+no ip ospf passive
+ip ospf network point-to-point
+ip ospf cost 10
+ip ospf authentication message-digest
+[КОНЕЦ БЛОКА 030]
+
+
+
+[БЛОК 031 | text; место ввода указано перед блоком]
+ip ospf message-digest-key 1 md5 abi2026
+ip ospf hello-interval 10
+ip ospf dead-interval 40
+exit
+end
+write memory
+exit
+[КОНЕЦ БЛОКА 031]
+
+
+Проверка: обычная оболочка R2:
+
+
+[БЛОК 032 | sh; место ввода указано перед блоком]
+vtysh -c 'show ip ospf neighbor'
+[КОНЕЦ БЛОКА 032]
+
+
+Ожидается Full.
+
+
+FW: итог OSPF
+-------------
+
+Место: Firefox ADMIN → Ideco → Управление сервером → Терминал.
+
+
+[БЛОК 033 | sh; место ввода указано перед блоком]
+vtysh -c 'show ip ospf neighbor'
+vtysh -c 'show ip route ospf'
+[КОНЕЦ БЛОКА 033]
+
+
+Проверка: Full с 10.10.10.2; есть 172.16.100.0/24 и 172.16.120.0/24 через него.
+
+—————————————————————————————————————————————
+
+
+Альт и FreeIPA — рабочая последовательность
+===========================================
+
+ADMIN — Альт Рабочая станция 10.4, DHCP. SRV — Альт Сервер 10.4, 172.16.110.50/24, шлюз 172.16.110.254. На каждом этапе подпись устройства определяет, в какой терминал вводить команды. Необходимы работающие WAN/NAT и GRE/OSPF.
+
+Имена: srv.au-team.abi, admin.au-team.abi. Все устройства и FreeIPA используют одну DNS-зону au-team.abi. Realm: AU-TEAM.ABI. DNS-видеосервис: video.au-team.abi → 172.16.110.50.
+
+Порядок рассчитан на чистый старт. Уже установленный FreeIPA с прежним именем сервера не переименовывай одной командой hostnamectl: имя связано с Kerberos и сертификатами.
+
+
+1. ADMIN — имя и время
+----------------------
+
+ADMIN → локальный терминал root:
+
+
+[БЛОК 034 | sh; место ввода указано перед блоком]
+hostnamectl set-hostname admin.au-team.abi
+timedatectl set-timezone Europe/Moscow
+[КОНЕЦ БЛОКА 034]
+
+
+Согласуй имя в постоянном сетевом файле; перезапуск действующей сети для этого не нужен:
+
+
+[БЛОК 035 | sh; место ввода указано перед блоком]
+sed -i 's/^HOSTNAME=.*/HOSTNAME=admin.au-team.abi/' /etc/sysconfig/network
+[КОНЕЦ БЛОКА 035]
+
+
+Если HOSTNAME отсутствовал:
+
+
+[БЛОК 036 | sh; место ввода указано перед блоком]
+grep -q '^HOSTNAME=' /etc/sysconfig/network || echo 'HOSTNAME=admin.au-team.abi' >> /etc/sysconfig/network
+[КОНЕЦ БЛОКА 036]
+
+
+
+[БЛОК 037 | sh; место ввода указано перед блоком]
+hostname -f
+grep '^HOSTNAME=' /etc/sysconfig/network
+ip -4 -br addr
+ip route
+timedatectl
+[КОНЕЦ БЛОКА 037]
+
+
+Проверка: admin.au-team.abi, текущий DHCP-адрес 172.16.120.10–200/24, gateway 172.16.120.1 и Europe/Moscow. Запиши реальный IPv4 ADMIN: .86 не гарантируется новой арендой.
+
+
+2. SRV — сеть и постоянный hostname
+-----------------------------------
+
+SRV → терминал root:
+
+
+[БЛОК 038 | sh; место ввода указано перед блоком]
+ip -4 -br addr
+B=$(mktemp -d /root/before-alt-net.XXXXXX)
+cp -a /etc/net /etc/hosts /etc/hostname /etc/sysconfig/network "$B/"
+[КОНЕЦ БЛОКА 038]
+
+
+Для интерфейса enp6s18 в уже выбранной подсистеме etcnet, статический IPv4:
+
+
+[БЛОК 039 | sh; место ввода указано перед блоком]
+N=/etc/net/ifaces/enp6s18
+echo '172.16.110.50/24' > "$N/ipv4address"
+echo 'default via 172.16.110.254' > "$N/ipv4route"
+[КОНЕЦ БЛОКА 039]
+
+
+
+[БЛОК 040 | sh; место ввода указано перед блоком]
+echo 'nameserver 77.88.8.8' > "$N/resolv.conf"
+hostnamectl set-hostname srv.au-team.abi
+[КОНЕЦ БЛОКА 040]
+
+
+
+[БЛОК 041 | sh; место ввода указано перед блоком]
+sed -i 's/^HOSTNAME=.*/HOSTNAME=srv.au-team.abi/' /etc/sysconfig/network
+[КОНЕЦ БЛОКА 041]
+
+
+Если HOSTNAME отсутствовал, добавь:
+
+
+[БЛОК 042 | sh; место ввода указано перед блоком]
+grep -q '^HOSTNAME=' /etc/sysconfig/network || echo 'HOSTNAME=srv.au-team.abi' >> /etc/sysconfig/network
+[КОНЕЦ БЛОКА 042]
+
+
+
+[БЛОК 043 | sh; место ввода указано перед блоком]
+grep -n 'srv\.au-team\.abi' /etc/hosts
+[КОНЕЦ БЛОКА 043]
+
+
+Если строки нет, добавь один раз:
+
+
+[БЛОК 044 | sh; место ввода указано перед блоком]
+echo '172.16.110.50 srv.au-team.abi srv' >> /etc/hosts
+[КОНЕЦ БЛОКА 044]
+
+
+Если строка есть с другим адресом, исправь её через vi /etc/hosts, не добавляя конфликтующий дубликат.
+
+
+[БЛОК 045 | sh; место ввода указано перед блоком]
+timedatectl set-timezone Europe/Moscow
+systemctl restart network
+[КОНЕЦ БЛОКА 045]
+
+
+При исправлении только постоянного HOSTNAME и уже правильной сети restart network пропускается.
+
+Проверка:
+
+
+[БЛОК 046 | sh; место ввода указано перед блоком]
+hostname -f
+grep '^HOSTNAME=' /etc/sysconfig/network
+getent ahostsv4 srv.au-team.abi
+[КОНЕЦ БЛОКА 046]
+
+
+Оба имени — srv.au-team.abi, IPv4 — 172.16.110.50. При другом результате следующий шаг — проверить /etc/hosts.
+
+
+3. SRV — установить FreeIPA
+---------------------------
+
+SRV → root:
+
+
+[БЛОК 047 | sh; место ввода указано перед блоком]
+ping -c 3 -W 2 8.8.8.8
+getent ahostsv4 ftp.altlinux.org
+timedatectl
+[КОНЕЦ БЛОКА 047]
+
+
+Нужны интернет, DNS и синхронизированное время. Репозитории остаются p10.
+
+
+[БЛОК 048 | sh; место ввода указано перед блоком]
+apt-get update
+apt-get -s install freeipa-server-dns
+[КОНЕЦ БЛОКА 048]
+
+
+После нормального плана:
+
+
+[БЛОК 049 | sh; место ввода указано перед блоком]
+apt-get install freeipa-server-dns
+[КОНЕЦ БЛОКА 049]
+
+
+На Y/n — y. Проверка сразу после установки:
+
+
+[БЛОК 050 | sh; место ввода указано перед блоком]
+echo "APT_RC=$?"
+rpm -q freeipa-server freeipa-server-dns freeipa-client
+[КОНЕЦ БЛОКА 050]
+
+
+При ошибке следующий шаг — читать конец APT; зависимости не обходить через force/nodeps.
+
+
+4. SRV — развернуть домен
+-------------------------
+
+SRV → root. Если домен уже настроен и ipactl status работает, повторную установку пропусти.
+
+
+[БЛОК 051 | sh; место ввода указано перед блоком]
+ipa-server-install \
+  --hostname=srv.au-team.abi \
+  --domain=au-team.abi --realm=AU-TEAM.ABI \
+  --ip-address=172.16.110.50 --setup-dns \
+  --forwarder=77.88.8.8 --forward-policy=only --auto-reverse
+[КОНЕЦ БЛОКА 051]
+
+
+
+Запрос | Ответ
+Directory Manager password / confirm | Задать и повторить пароль Directory Manager
+IPA admin password / confirm | Задать и повторить пароль IPA admin; он нужен дальше
+NetBIOS domain name [AU-TEAM] | Enter
+Configure CHRONY with NTP server or pool? [no] | Enter, оставить no
+Continue with these values? [no] | Проверить сводку; yes
+
+
+Сводка: srv.au-team.abi,172.16.110.50,au-team.abi,AU-TEAM.ABI,forwarder77.88.8.8,policy only,reverse110.16.172.in-addr.arpa. Link-local fe80:: не должен стать IP сервера; правильный IPv4 в сводке —172.16.110.50.
+
+Проверка:
+
+
+[БЛОК 052 | sh; место ввода указано перед блоком]
+echo "IPA_SERVER_RC=$?"
+ipactl status
+[КОНЕЦ БЛОКА 052]
+
+
+Код 0 и работающие службы. При ошибке следующий шаг — конец /var/log/ipaserver-install.log.
+
+
+5. SRV — билет, основная зона и video
+-------------------------------------
+
+SRV → root:
+
+
+[БЛОК 053 | sh; место ввода указано перед блоком]
+kinit admin
+klist
+ipa dnszone-find
+[КОНЕЦ БЛОКА 053]
+
+
+Ввести существующий пароль IPA admin. Команды ipa dns... далее выполняются на SRV с этим билетом.
+
+
+[БЛОК 054 | sh; место ввода указано перед блоком]
+ipa dnszone-show au-team.abi
+ipa dnsrecord-find au-team.abi
+[КОНЕЦ БЛОКА 054]
+
+
+Зона au-team.abi, A-запись srv → 172.16.110.50 и служебные LDAP/Kerberos SRV уже создаются установщиком FreeIPA. Зону и эти записи повторно не добавляй. Если основной зоны нет, следующий шаг — конец /var/log/ipaserver-install.log.
+
+
+[БЛОК 055 | sh; место ввода указано перед блоком]
+ipa dnsrecord-show au-team.abi video
+[КОНЕЦ БЛОКА 055]
+
+
+Если video отсутствует, создай до настройки ZoneMinder:
+
+
+[БЛОК 056 | sh; место ввода указано перед блоком]
+ipa dnsrecord-add au-team.abi video --a-rec=172.16.110.50
+[КОНЕЦ БЛОКА 056]
+
+
+Проверка:
+
+
+[БЛОК 057 | sh; место ввода указано перед блоком]
+dig @127.0.0.1 srv.au-team.abi A +short
+dig @127.0.0.1 video.au-team.abi A +short
+[КОНЕЦ БЛОКА 057]
+
+
+Оба адреса 172.16.110.50. PTR сервера остаётся srv.au-team.abi.
+
+
+6. SRV — обратные зоны
+----------------------
+
+SRV → root с билетом admin. Сравни вывод ipa dnszone-find. Зона 110.16.172.in-addr.arpa уже создана; повторно её не добавляй.
+
+Из следующих команд выполняются только команды отсутствующих зон. Если зона уже перечислена, её строка пропускается:
+
+
+[БЛОК 058 | sh; место ввода указано перед блоком]
+ipa dnszone-add 10.16.172.in-addr.arpa --admin-email=hostmaster@au-team.abi
+[КОНЕЦ БЛОКА 058]
+
+
+
+[БЛОК 059 | sh; место ввода указано перед блоком]
+ipa dnszone-add 100.16.172.in-addr.arpa --admin-email=hostmaster@au-team.abi
+[КОНЕЦ БЛОКА 059]
+
+
+
+[БЛОК 060 | sh; место ввода указано перед блоком]
+ipa dnszone-add 120.16.172.in-addr.arpa --admin-email=hostmaster@au-team.abi
+[КОНЕЦ БЛОКА 060]
+
+
+Проверка: ipa dnszone-find — одна прямая зона au-team.abi и четыре обратные 10/100/110/120. При ошибке следующий шаг — klist.
+
+
+7. SRV — A/PTR устройств
+------------------------
+
+SRV → root с билетом admin. Сначала ipa dnsrecord-find au-team.abi. Для уже существующего правильного имени команду добавления пропусти:
+
+
+[БЛОК 061 | sh; место ввода указано перед блоком]
+ipa dnsrecord-add au-team.abi r2 --a-rec=172.16.120.1 --a-create-reverse
+[КОНЕЦ БЛОКА 061]
+
+
+
+[БЛОК 062 | sh; место ввода указано перед блоком]
+ipa dnsrecord-add au-team.abi fw --a-rec=172.16.110.254 --a-create-reverse
+[КОНЕЦ БЛОКА 062]
+
+
+
+[БЛОК 063 | sh; место ввода указано перед блоком]
+ipa dnsrecord-add au-team.abi cam1 --a-rec=172.16.10.10 --a-create-reverse
+[КОНЕЦ БЛОКА 063]
+
+
+
+[БЛОК 064 | sh; место ввода указано перед блоком]
+ipa dnsrecord-add au-team.abi cam2 --a-rec=172.16.10.20 --a-create-reverse
+[КОНЕЦ БЛОКА 064]
+
+
+
+[БЛОК 065 | sh; место ввода указано перед блоком]
+ipa dnsrecord-add au-team.abi print --a-rec=172.16.100.100 --a-create-reverse
+[КОНЕЦ БЛОКА 065]
+
+
+На ADMIN прочитай его текущий IPv4 командой ip -4 -br addr. На SRV введи этот IPv4 без /24:
+
+
+[БЛОК 066 | sh; место ввода указано перед блоком]
+read -r -p 'Текущий IPv4 ADMIN без /24: ' ADMIN_IP
+[КОНЕЦ БЛОКА 066]
+
+
+Если admin ещё отсутствует:
+
+
+[БЛОК 067 | sh; место ввода указано перед блоком]
+ipa dnsrecord-add au-team.abi admin --a-rec="$ADMIN_IP" --a-create-reverse
+[КОНЕЦ БЛОКА 067]
+
+
+Проверка:
+
+
+[БЛОК 068 | sh; место ввода указано перед блоком]
+dig @127.0.0.1 cam1.au-team.abi A +short
+dig @127.0.0.1 -x 172.16.10.10 +short
+[КОНЕЦ БЛОКА 068]
+
+
+Остальные имена проверяются теми же A/PTR-запросами со своим адресом. Отсутствующий PTR исправляется в обратной зоне, а не повторным добавлением A.
+
+
+8. SRV — постоянный собственный DNS
+-----------------------------------
+
+SRV → root:
+
+
+[БЛОК 069 | sh; место ввода указано перед блоком]
+printf '%s\n' 'search au-team.abi' 'nameserver 127.0.0.1' > /etc/net/ifaces/enp6s18/resolv.conf
+[КОНЕЦ БЛОКА 069]
+
+
+
+[БЛОК 070 | sh; место ввода указано перед блоком]
+resolvconf -a enp6s18 < /etc/net/ifaces/enp6s18/resolv.conf
+[КОНЕЦ БЛОКА 070]
+
+
+Проверка:
+
+
+[БЛОК 071 | sh; место ввода указано перед блоком]
+dig srv.au-team.abi A +short
+dig example.org A +short
+[КОНЕЦ БЛОКА 071]
+
+
+Внешние имена пересылает FreeIPA на 77.88.8.8. При отказе внешнего запроса следующий шаг — ipa dnsconfig-show и доступ к forwarder.
+
+
+9. R2 — узкое правило ADMIN → SRV
+---------------------------------
+
+R2 → SSH root из ADMIN; не локальный терминал ADMIN:
+
+
+[БЛОК 072 | sh; место ввода указано перед блоком]
+ip -4 route get 172.16.110.50
+uci set firewall.admin_srv=rule
+uci set firewall.admin_srv.name='ADMINS-SRV'
+[КОНЕЦ БЛОКА 072]
+
+
+
+[БЛОК 073 | sh; место ввода указано перед блоком]
+uci set firewall.admin_srv.src='ADMINS'
+uci set firewall.admin_srv.dest='GRE'
+uci set firewall.admin_srv.src_ip='172.16.120.0/24'
+[КОНЕЦ БЛОКА 073]
+
+
+
+[БЛОК 074 | sh; место ввода указано перед блоком]
+uci set firewall.admin_srv.dest_ip='172.16.110.50'
+uci set firewall.admin_srv.proto='all'
+uci set firewall.admin_srv.family='ipv4'
+[КОНЕЦ БЛОКА 074]
+
+
+
+[БЛОК 075 | sh; место ввода указано перед блоком]
+uci set firewall.admin_srv.target='ACCEPT'
+uci set firewall.admin_srv.enabled='1'
+[КОНЕЦ БЛОКА 075]
+
+
+
+[БЛОК 076 | sh; место ввода указано перед блоком]
+fw4 check && uci commit firewall && /etc/init.d/firewall reload
+[КОНЕЦ БЛОКА 076]
+
+
+Общий ADMINS→GRE и маскарадинг GRE не включаются.
+
+Проверка на ADMIN в локальном терминале:
+
+
+[БЛОК 077 | sh; место ввода указано перед блоком]
+dig @172.16.110.50 srv.au-team.abi A +short
+dig @172.16.110.50 +tcp _kerberos._udp.au-team.abi SRV +short
+curl -I --max-time 10 http://172.16.110.50/ipa/ui/
+[КОНЕЦ БЛОКА 077]
+
+
+HTTP 301 на srv.au-team.abi — штатный ответ. При отказе следующий шаг — правило admin_srv и маршрут на R2.
+
+
+10. R2 — DNS forwarding
+-----------------------
+
+R2 → SSH root. Сначала uci show dhcp.@dnsmasq[0].server и uci show dhcp.@dnsmasq[0].rebind_domain; уже имеющиеся одинаковые значения не добавляй повторно.
+
+
+[БЛОК 078 | sh; место ввода указано перед блоком]
+uci add_list dhcp.@dnsmasq[0].server='/au-team.abi/172.16.110.50'
+[КОНЕЦ БЛОКА 078]
+
+
+
+[БЛОК 079 | sh; место ввода указано перед блоком]
+uci add_list dhcp.@dnsmasq[0].server='/10.16.172.in-addr.arpa/172.16.110.50'
+[КОНЕЦ БЛОКА 079]
+
+
+
+[БЛОК 080 | sh; место ввода указано перед блоком]
+uci add_list dhcp.@dnsmasq[0].server='/100.16.172.in-addr.arpa/172.16.110.50'
+[КОНЕЦ БЛОКА 080]
+
+
+
+[БЛОК 081 | sh; место ввода указано перед блоком]
+uci add_list dhcp.@dnsmasq[0].server='/110.16.172.in-addr.arpa/172.16.110.50'
+[КОНЕЦ БЛОКА 081]
+
+
+
+[БЛОК 082 | sh; место ввода указано перед блоком]
+uci add_list dhcp.@dnsmasq[0].server='/120.16.172.in-addr.arpa/172.16.110.50'
+[КОНЕЦ БЛОКА 082]
+
+
+
+[БЛОК 083 | sh; место ввода указано перед блоком]
+uci add_list dhcp.@dnsmasq[0].rebind_domain='au-team.abi'
+[КОНЕЦ БЛОКА 083]
+
+
+
+[БЛОК 084 | sh; место ввода указано перед блоком]
+uci set dhcp.@dnsmasq[0].domain='au-team.abi'
+uci set dhcp.@dnsmasq[0].local='/lan/'
+uci changes dhcp
+uci commit dhcp
+/etc/init.d/dnsmasq reload
+[КОНЕЦ БЛОКА 084]
+
+
+DHCP option15 и local domain — au-team.abi, DNS DHCP — 172.16.120.1. Значение local=/lan/ сохраняет пересылку основной зоны на SRV; local=/au-team.abi/ не задавай, иначе dnsmasq будет считать её только локальной.
+
+Проверка на ADMIN:
+
+
+[БЛОК 085 | sh; место ввода указано перед блоком]
+dig srv.au-team.abi A +short
+dig _ldap._tcp.au-team.abi SRV +short
+dig video.au-team.abi A +short
+[КОНЕЦ БЛОКА 085]
+
+
+Если прямой запрос к SRV работает, а этот нет, следующий шаг — проверить forward/rebind на R2.
+
+
+11. SRV — защищённые DNS updates
+--------------------------------
+
+SRV → root, сначала kinit admin:
+
+
+[БЛОК 086 | sh; место ввода указано перед блоком]
+ipa dnszone-mod au-team.abi --dynamic-update=TRUE --allow-sync-ptr=TRUE
+[КОНЕЦ БЛОКА 086]
+
+
+
+[БЛОК 087 | sh; место ввода указано перед блоком]
+ipa dnszone-mod 120.16.172.in-addr.arpa --dynamic-update=TRUE
+[КОНЕЦ БЛОКА 087]
+
+
+Проверка: ipa dnszone-show au-team.abi → Dynamic update=True и Allow PTR sync=True. Эти команды не выполняются на ещё не введённом в домен ADMIN.
+
+
+12. ADMIN — клиент и ответы установщика
+---------------------------------------
+
+ADMIN → локальный терминал root:
+
+
+[БЛОК 088 | sh; место ввода указано перед блоком]
+apt-get update
+apt-get install freeipa-client zip
+[КОНЕЦ БЛОКА 088]
+
+
+
+[БЛОК 089 | sh; место ввода указано перед блоком]
+ipa-client-install --hostname=admin.au-team.abi \
+  --domain=au-team.abi --realm=AU-TEAM.ABI \
+  --server=srv.au-team.abi --mkhomedir \
+  --enable-dns-updates --principal=admin
+[КОНЕЦ БЛОКА 089]
+
+
+
+Запрос | Ответ
+Fixed values and no DNS discovery? [no], если вопрос появился | yes, Enter
+Configure CHRONY with NTP server or pool? [no] | Enter, оставить no
+Continue with these values? [no] | Сверить admin.au-team.abi/au-team.abi/AU-TEAM.ABI/srv.au-team.abi; yes
+Password for admin@AU-TEAM.ABI | Существующий пароль IPA admin, скрытый ввод
+
+
+Проверка:
+
+
+[БЛОК 090 | sh; место ввода указано перед блоком]
+echo "IPA_CLIENT_RC=$?"
+systemctl is-active sssd
+id admin@au-team.abi
+[КОНЕЦ БЛОКА 090]
+
+
+Код 0, active, доменная запись. При ошибке следующий шаг — конец /var/log/ipaclient-install.log.
+
+
+13. ADMIN — защищённое обновление A/PTR
+---------------------------------------
+
+ADMIN → локальный root после ввода в домен:
+
+
+[БЛОК 091 | sh; место ввода указано перед блоком]
+kinit -k -t /etc/krb5.keytab host/admin.au-team.abi@AU-TEAM.ABI
+[КОНЕЦ БЛОКА 091]
+
+
+
+[БЛОК 092 | sh; место ввода указано перед блоком]
+ADMIN_IP=$(ip -4 -o addr show enp6s18 scope global | awk '{print $4}' | cut -d/ -f1)
+echo "$ADMIN_IP"
+[КОНЕЦ БЛОКА 092]
+
+
+
+[БЛОК 093 | sh; место ввода указано перед блоком]
+nsupdate -g <<EOF
+server srv.au-team.abi.
+zone au-team.abi.
+update delete admin.au-team.abi. A
+update add admin.au-team.abi. 1200 A $ADMIN_IP
+send
+EOF
+[КОНЕЦ БЛОКА 093]
+
+
+Проверка:
+
+
+[БЛОК 094 | sh; место ввода указано перед блоком]
+echo "GSS_DNS_RC=$?"
+dig @172.16.110.50 admin.au-team.abi A +short
+dig @172.16.110.50 -x "$ADMIN_IP" +short
+[КОНЕЦ БЛОКА 094]
+
+
+Ожидаются код 0, текущий IPv4 и admin.au-team.abi в PTR.
+
+
+14. SRV — пользователи camUser/codUser и группа
+-----------------------------------------------
+
+SRV → root:
+
+
+[БЛОК 095 | sh; место ввода указано перед блоком]
+kinit admin
+ipa user-show camuser
+ipa user-show coduser
+[КОНЕЦ БЛОКА 095]
+
+
+Добавляй только отсутствующего пользователя:
+
+
+[БЛОК 096 | sh; место ввода указано перед блоком]
+ipa user-add camuser --first=cam --last=User --displayname=camUser --password
+[КОНЕЦ БЛОКА 096]
+
+
+
+[БЛОК 097 | sh; место ввода указано перед блоком]
+ipa user-add coduser --first=cod --last=User --displayname=codUser --password
+[КОНЕЦ БЛОКА 097]
+
+
+На Password и confirm для каждого — P@ssw0rd из задания. Логины в IPA нормализуются до camuser/coduser; отображаемые имена — camUser/codUser.
+
+Чтобы сохранить заданные пароли без обязательной смены при первом входе, только этим двум записям установи обычный срок 90 дней:
+
+
+[БЛОК 098 | sh; место ввода указано перед блоком]
+EXP=$(date -u -d '+90 days' +%Y-%m-%dT%H:%M:%SZ)
+ipa user-mod camuser --password-expiration="$EXP"
+ipa user-mod coduser --password-expiration="$EXP"
+[КОНЕЦ БЛОКА 098]
+
+
+
+[БЛОК 099 | sh; место ввода указано перед блоком]
+ipa group-show abiusers
+[КОНЕЦ БЛОКА 099]
+
+
+Если группы нет:
+
+
+[БЛОК 100 | sh; место ввода указано перед блоком]
+ipa group-add abiusers --desc='Abilympics lab users'
+[КОНЕЦ БЛОКА 100]
+
+
+
+[БЛОК 101 | sh; место ввода указано перед блоком]
+ipa group-add-member abiusers --users=camuser --users=coduser
+[КОНЕЦ БЛОКА 101]
+
+
+Проверка: ipa group-show abiusers содержит только camuser и coduser для последующего импорта в Ideco.
+
+
+15. ADMIN — доменный вход
+-------------------------
+
+ADMIN → экран входа Альт: выйди из текущей сессии, войди как camuser@au-team.abi с паролем задания. В терминале вошедшего пользователя:
+
+
+[БЛОК 102 | sh; место ввода указано перед блоком]
+id
+pwd
+ls -ld "$HOME"
+klist
+[КОНЕЦ БЛОКА 102]
+
+
+Проверка: доменная учётная запись, созданный домашний каталог и билет Kerberos. При отказе следующий шаг — id camuser@au-team.abi из локального административного терминала.
+
+—————————————————————————————————————————————
+
+
+Быстрые шаги Ideco23 и FreeIPA
+==============================
+
+
+DNS на ADMIN
+------------
+
+Место: ADMIN → обычный терминал.
+
+Действие: системный DNS — 172.16.110.50 либо R2 с пересылкой зоны au-team.abi на IPA.
+
+Проверка:
+
+
+[БЛОК 103 | sh; место ввода указано перед блоком]
+getent hosts srv.au-team.abi
+dig +short _ldap._tcp.au-team.abi SRV
+[КОНЕЦ БЛОКА 103]
+
+
+Ожидаются 172.16.110.50 и srv.au-team.abi.
+
+
+Forward-зоны FW
+---------------
+
+Место: Firefox ADMIN → Ideco → Сервисы → DNS → Forward-зоны → Добавить.
+
+Действие: одна включённая пересылка au-team.abi → 172.16.110.50. Если правильная запись уже есть, в том числе с меткой FreeIPA, повторно не добавлять. Внешний DNS WAN сохраняется. Для нужных PTR добавить соответствующие точные обратные зоны /24, уже обслуживаемые IPA.
+
+[Скриншот: Ideco23: внутренние Forward-зоны; assets/image-2435922d236cdabfef.jpg]
+
+Снимок прежнего прохода Ideco23 от 1 ноября 2026 показывает расположение Forward-зон; на нём осталась старая дополнительная зона и повторная строка. Для новой настройки по уточнённой таблице нужна только одна пересылка основной зоны au-team.abi → 172.16.110.50. Старую дополнительную зону со снимка не создавайте; автоматическую правильную запись FreeIPA не дублируйте.
+Проверка: Управление сервером → Терминал:
+
+
+[БЛОК 104 | sh; место ввода указано перед блоком]
+getent hosts srv.au-team.abi
+dig +short _ldap._tcp.au-team.abi SRV
+[КОНЕЦ БЛОКА 104]
+
+
+
+Группа и роли IPA
+-----------------
+
+Место: SRV → терминал root.
+
+
+[БЛОК 105 | sh; место ввода указано перед блоком]
+kinit admin
+ipa group-show abiusers
+ipa role-show 'CIFS server'
+ipa role-show 'Organization units'
+[КОНЕЦ БЛОКА 105]
+
+
+Только отсутствующую роль создать своей командой:
+
+
+[БЛОК 106 | sh; место ввода указано перед блоком]
+ipa role-add 'CIFS server' --desc='Ideco CIFS services'
+ipa role-add 'Organization units' --desc='Ideco directory import'
+[КОНЕЦ БЛОКА 106]
+
+
+Проверка: abiusers содержит только camuser и coduser.
+
+
+Присоединение FW
+----------------
+
+Место: Firefox ADMIN → Ideco → Пользователи → Внешние каталоги → FreeIPA → Добавить.
+
+Действие: домен au-team.abi; DNS 172.16.110.50; короткое имя fw (FQDN fw.au-team.abi); запись admin; существующий пароль IPA в скрытом поле → Присоединить к домену.
+
+[Скриншот: Ideco23: поля присоединения; assets/image-226677e033bfffedaf.jpg]
+
+1 ноября 2026: расположение полей «IP-адрес DNS-сервера» и «Название сервера Ideco NGFW Novum», скрытый ввод «Пароль» и кнопка «Присоединить к домену». При настройке в эти поля вводятся172.16.110.50 иfw соответственно. На снимке новая форма только показана и закрыта без сохранения; успешную существующую интеграцию повторно не создают.
+
+[Скриншот: Ideco23: успешное подключение; assets/image-a3ab92caabbec559b4.jpg]
+
+1 ноября 2026: au-team.abi / fw, «Успешно».
+
+Проверка: успешное состояние au-team.abi / fw. На SRV:
+
+
+[БЛОК 107 | sh; место ввода указано перед блоком]
+ipa host-show fw.au-team.abi
+[КОНЕЦ БЛОКА 107]
+
+
+
+Импорт двух пользователей
+-------------------------
+
+Место: Firefox ADMIN → Ideco → Пользователи → Учётные записи.
+
+Действие: возле Все локальные → Добавить группу → FreeIPA-AbiUsers → Добавить. Открыть группу → вкладка FreeIPA → домен au-team.abi → группа безопасности abiusers → Сохранить. Существующую группу повторно не создавать.
+
+[Скриншот: Ideco23: импорт только abiusers; assets/image-c51bb01de5f9ceb942.jpg]
+
+1 ноября 2026: группа FreeIPA-AbiUsers, вкладка FreeIPA, домен au-team.abi и группа безопасности abiusers → «Сохранить».
+
+Проверка: в группе ровно camUser/логин camuser и codUser/логин coduser, источник FreeIPA.
+
+
+Авторизация сети камер
+----------------------
+
+Место: Firefox ADMIN → Ideco → Пользователи → Авторизация → По подсетям → Добавить.
+
+Действие: пользователь camUser; подсеть 172.16.10.0/24; комментарий пустой → Добавить; после сохранения проверить включённое состояние строки.
+
+[Скриншот: Ideco23: куда вводить пользователя и CIDR; assets/image-d87fa4e9c474bd3225.jpg]
+
+1 ноября 2026: поля «Пользователь», «Подсеть», «Комментарий» → «Добавить»; включённое состояние проверяется в списке.
+
+Проверка: включённая строка 172.16.10.0/24 → camUser, каталог au-team.abi.
+
+
+Подготовить авторизацию SRV
+---------------------------
+
+Место: Firefox ADMIN → Ideco → Пользователи → Авторизация → По подсетям → Добавить.
+
+Действие: пользователь codUser; подсеть 172.16.110.0/24; комментарий пустой. Сохранить выключенным до переключения, если форма это позволяет. Если /24 блокируется старой пересекающейся /32, полностью подготовить форму, затем отключить только /32 и сразу сохранить /24.
+
+Проверка: импорт coduser готов; подготовлено правило /24; найдена временная привязка 172.16.110.50 → SRV boot/setup-srv.
+
+
+Переключить SRV
+---------------
+
+Место: Firefox ADMIN → Ideco.
+
+Действие:
+
+1. Пользователи → Авторизация → IP и MAC: отключить только 172.16.110.50 → временный пользователь.
+2. Пользователи → Авторизация → По подсетям: включить 172.16.110.0/24 → codUser.
+3. Пользователи → Учётные записи → временный пользователь → Сессии: завершить только старую сессию SRV.
+4. SRV → терминал:
+
+
+[БЛОК 108 | sh; место ввода указано перед блоком]
+curl -I --connect-timeout 10 --max-time 20 https://ftp.altlinux.org/
+[КОНЕЦ БЛОКА 108]
+
+
+Проверка: в Пользователи → Учётные записи → FreeIPA-AbiUsers → codUser → Сессии новый сеанс типа Подсеть, CIDR 172.16.110.0/24; HTTPS с SRV получает ответ.
+
+[Скриншот: Ideco23: итоговые правила подсетей; assets/image-8a5044640cab0bb311.jpg]
+
+1 ноября 2026: camUser для172.16.10.0/24 и codUser для172.16.110.0/24, обе строки включены.
+
+
+Закончить переход с SRV boot
+----------------------------
+
+Место: Firefox ADMIN → Ideco → Пользователи → Учётные записи → временный пользователь.
+
+Действие: после успешной проверки coduser оставить временную запись выключенной, её IP-привязку отключённой, старую сессию завершённой. Запись и историю сохранить.
+
+Проверка: SRV авторизован как codUser; временный пользователь больше не имеет активной сессии SRV.
+
+
+Сеанс сети камер
+----------------
+
+Место: Firefox ADMIN → Ideco → Пользователи → Учётные записи → FreeIPA-AbiUsers → camUser → Сессии.
+
+Действие: создать разрешённый внешний трафик с обеих камер средствами самих устройств.
+
+Проверка: тип Подсеть, сеть 172.16.10.0/24; доступ каждой камеры проверен отдельно, а не только по наличию общей сессии.
+
+—————————————————————————————————————————————
+
+
+Кибер Бэкап: короткий рабочий порядок
+=====================================
+
+
+Сервер и собственная база
+-------------------------
+
+SRV → терминал root. Проверьте имя, работающий kernel и совпадение заголовков.
+
+
+[БЛОК 109 | bash; место ввода указано перед блоком]
+hostname -f
+uname -r
+cat /lib/modules/"$(uname -r)"/build/include/generated/utsrelease.h
+[КОНЕЦ БЛОКА 109]
+
+
+Если файла нет, сначала подготовьте точные заголовки по полной главе установки. Для известного пакета установки:
+
+
+[БЛОК 110 | bash; место ввода указано перед блоком]
+install -d -m 700 /root/cyberbackup-install
+cd /root/cyberbackup-install
+url=https://download.cyberprotect.ru/releases/CyberBackup/18.6.41741/CyberBackup_18_64-bit.x86_64
+curl --fail --location --connect-timeout 20 --max-time 1800 -o CyberBackup.part "$url"
+[КОНЕЦ БЛОКА 110]
+
+
+Только после успешной загрузки:
+
+
+[БЛОК 111 | bash; место ввода указано перед блоком]
+mv CyberBackup.part CyberBackup_18_64-bit.x86_64
+sha256sum CyberBackup_18_64-bit.x86_64
+chmod 700 CyberBackup_18_64-bit.x86_64
+./CyberBackup_18_64-bit.x86_64 --language=ru
+[КОНЕЦ БЛОКА 111]
+
+
+SRV → установщик:
+
+
+Экран | Выбор
+Компоненты | Management Server + Agent for Linux + Storage Node
+Bootable Media Builder, остальные агенты | Снять отметки
+СУБД | Встроенная SQLite
+Веб-порт | 9877
+Порт компонентов | 7780
+
+
+SQLite создаёт сам установщик: это собственная служебная база продукта. Каталог /var/backup создаётся отдельно для архивов. SQL-команды для SQLite не вводятся.
+
+Проверка на SRV:
+
+
+[БЛОК 112 | bash; место ввода указано перед блоком]
+systemctl list-units --type=service --all --no-pager 'acronis*'
+curl -sS -o /dev/null -w 'HTTP=%{http_code}\n' http://127.0.0.1:9877/
+[КОНЕЦ БЛОКА 112]
+
+
+ADMIN → Firefox: http://srv.au-team.abi:9877/ → вход разрешённой учётной записью SRV.
+
+
+Агент ADMIN
+-----------
+
+ADMIN → собственный терминал root, hostname -f должен показать admin.au-team.abi. Проверьте заголовки. Загрузите отдельный файл установщика на ADMIN:
+
+
+[БЛОК 113 | bash; место ввода указано перед блоком]
+install -d -m 700 /root/cyberbackup-install
+cd /root/cyberbackup-install
+url=https://download.cyberprotect.ru/releases/CyberBackup/18.6.41741/CyberBackup_18_64-bit.x86_64
+curl --fail --location --connect-timeout 20 --max-time 1800 -o CyberBackup.part "$url"
+[КОНЕЦ БЛОКА 113]
+
+
+Только после успешной загрузки около 2 ГБ:
+
+
+[БЛОК 114 | bash; место ввода указано перед блоком]
+mv CyberBackup.part CyberBackup_18_64-bit.x86_64
+sha256sum CyberBackup_18_64-bit.x86_64
+chmod 700 CyberBackup_18_64-bit.x86_64
+./CyberBackup_18_64-bit.x86_64 --language=ru
+[КОНЕЦ БЛОКА 114]
+
+
+ADMIN → установщик: только Agent for Linux → сервер управления srv.au-team.abi → существующая административная учётная запись SRV → корневая организация → завершить.
+
+Проверка: Firefox → Кибер Бэкап → Устройства → Физические и виртуальные машины → ADMIN виден и доступен.
+
+Если нет лицензии для ADMIN: Firefox → Кибер Бэкап → Настройки → Лицензии → Начать пробный период, если доступен вариант 30 дней, либо Добавить ключи с лицензией организаторов. При необходимости выбрать лицензию → Назначить → ADMIN → Готово. Обход лицензирования не применяется.
+
+Сетевой контроль: регистрация и копирование требуют TCP-доступа ADMIN к SRV, а не успешного ping SRV → ADMIN. Веб-консоль — TCP9877, обмен компонентов — TCP7780; порты хранения сверяются по службам/документации. На ADMIN:
+
+
+[БЛОК 115 | bash; место ввода указано перед блоком]
+timeout 3 bash -c ':</dev/tcp/172.16.110.50/7780' && echo TCP7780_OK
+[КОНЕЦ БЛОКА 115]
+
+
+
+Хранилище
+---------
+
+SRV → терминал root. Для отсутствующего /var/backup:
+
+
+[БЛОК 116 | bash; место ввода указано перед блоком]
+install -d -o root -g root -m 700 /var/backup
+stat -c '%F %a %U:%G %n' /var/backup
+[КОНЕЦ БЛОКА 116]
+
+
+ADMIN → Firefox → Кибер Бэкап → Хранилища резервных копий → Добавить хранилище:
+
+
+Поле | Значение
+Узел | srv.au-team.abi
+Имя | SRV-BACKUP
+Адрес | srv.au-team.abi
+Папка на узле | /var/backup/
+Дедупликация | Выключена
+
+
+Проверка: сохранённое SRV-BACKUP показывает выбранный SRV и путь /var/backup.
+
+SRV-BACKUP — только имя хранилища. План по заданию — ADMIN-BACKUP; дополнительный план защиты SRV здесь не создаётся.
+
+
+План ADMIN-BACKUP
+-----------------
+
+ADMIN → Firefox → Устройства → Физические и виртуальные машины → admin.au-team.abi → Включить защиту.
+
+
+Параметр | Значение
+Имя | ADMIN-BACKUP
+Данные | Файлы/папки, только /etc/
+Назначение | SRV-BACKUP
+Схема | Всегда полное
+Расписание | Ежедневно, каждый день, 00:00
+Параметры → Планирование | Начинать строго по расписанию
+Очистка | По числу копий, максимум 5
+Начать очистку | После резервного копирования
+
+
+Применить/Сохранить → снова открыть изменение → перечитать параметры. Перед первым запуском сохраните контрольные суммы командами следующего раздела.
+
+Проверка: повторное открытие плана показывает /etc, ежедневные 00:00 и пять копий.
+
+
+Проверка восстановления
+-----------------------
+
+ADMIN → терминал root, один сеанс:
+
+
+[БЛОК 117 | bash; место ввода указано перед блоком]
+restore_dir=$(mktemp -d /root/restore-check.XXXXXX)
+printf '%s\n' "$restore_dir"
+baseline="$restore_dir.before.sha256"
+sha256sum /etc/hosts /etc/fstab /etc/altlinux-release > "$baseline"
+[КОНЕЦ БЛОКА 117]
+
+
+ADMIN → Firefox → Планы → Защита → ADMIN-BACKUP → Выполнить сейчас → дождаться «Выполнено успешно». Затем Восстановление → SRV-BACKUP → точка ADMIN-BACKUP → Восстановить файлы/папки: выбрать etc → машина admin.au-team.abi → пользовательский путь, выведенный restore_dir → не перезаписывать → без перезагрузки → начать → успешное завершение.
+
+Проверка в том же терминале ADMIN:
+
+
+[БЛОК 118 | bash; место ввода указано перед блоком]
+test -d "$restore_dir/etc" && echo RESTORED_TREE_OK
+sha256sum -c "$baseline"
+sed "s#  /etc/#  $restore_dir/etc/#" "$baseline" | sha256sum -c -
+[КОНЕЦ БЛОКА 118]
+
+
+
+IRPO, Admins, Audit
+-------------------
+
+ADMIN → Firefox → Настройки → Учётные записи: корневая Организация → Создать отдел IRPO → выбрать IRPO → создать Admins → снова выбрать IRPO → создать Audit.
+
+В этом виртуальном стенде IRPO как родительский отдел и логин cbadmin вместо Admin — две согласованные адаптации.
+
+SRV → терминал root: создавать только отсутствующие локальные записи.
+
+
+[БЛОК 119 | bash; место ввода указано перед блоком]
+getent -s files passwd cbadmin
+getent -s files passwd audit
+[КОНЕЦ БЛОКА 119]
+
+
+
+[БЛОК 120 | bash; место ввода указано перед блоком]
+useradd -M -s /sbin/nologin -c 'CyberBackup Admins' cbadmin
+useradd -M -s /sbin/nologin -c 'CyberBackup Audit' audit
+[КОНЕЦ БЛОКА 120]
+
+
+Английская раскладка; предусмотренный заданием P@ssw0rd ввести дважды на каждом скрытом запросе:
+
+
+[БЛОК 121 | bash; место ввода указано перед блоком]
+passwd cbadmin
+passwd audit
+[КОНЕЦ БЛОКА 121]
+
+
+Сохранить список входа и дописать имена без удаления root:
+
+
+[БЛОК 122 | bash; место ввода указано перед блоком]
+backup=$(mktemp -d /root/cb-users-before.XXXXXX)
+cp -a /etc/security/acronisagent.conf "$backup/"
+[КОНЕЦ БЛОКА 122]
+
+
+
+[БЛОК 123 | bash; место ввода указано перед блоком]
+grep -qxF cbadmin /etc/security/acronisagent.conf || printf 'cbadmin\n' >> /etc/security/acronisagent.conf
+grep -qxF audit /etc/security/acronisagent.conf || printf 'audit\n' >> /etc/security/acronisagent.conf
+[КОНЕЦ БЛОКА 123]
+
+
+ADMIN → Firefox → Настройки → Учётные записи:
+
+
+Где выбрать «Добавить учётную запись» | Пользователь на локальном SRV | Роль
+IRPO → Admins | cbadmin | Администратор
+Корневая Организация | cbadmin | Администратор — полные права над существующими устройствами/планами
+IRPO → Audit | audit | Аудитор
+
+
+Проверка: открыть сохранённые «Сведения» каждой записи; затем отдельные входы cbadmin и audit в приватном окне Firefox.
+
+
+Журнал аудита
+-------------
+
+cbadmin → Firefox → выбрать Организацию → Настройки → Аудит → Журнал аудита → Сохранять события аудита: включить. Обновить страницу, перечитать переключатель.
+
+audit → отдельное приватное окно Firefox → Журнал аудита: найти свежий собственный вход, открыть сведения. Изменения настроек должны быть недоступны. Дополнительный серверный тест GET/PUT выполняется по полной главе, если остаётся время тренировки.
+
+Проверка: вход audit отражён в журнале, роль — Аудитор; права администратора ему не назначены.
+
+—————————————————————————————————————————————
+
+
+Камеры: короткий рабочий порядок
+================================
+
+
+Устройство | Конечный адрес | Шлюз | FQDN
+CAM1 | 172.16.10.10/24 | 172.16.10.1 | cam1.au-team.abi
+CAM2 | 172.16.10.20/24 | 172.16.10.1 | cam2.au-team.abi
+
+
+
+Проверка связи до настройки записи
+----------------------------------
+
+ADMIN → Firefox → Ideco → Сервисы → DHCP-сервер → LAN-CAM: сопоставить камеры по MAC и записать фактические временные адреса. При статике используются адреса из таблицы.
+
+SRV → терминал:
+
+
+[БЛОК 124 | bash; место ввода указано перед блоком]
+ping -c 3 -W 2 172.16.10.10
+ping -c 3 -W 2 172.16.10.20
+curl -I --connect-timeout 3 --max-time 8 http://172.16.10.10/
+curl -I --connect-timeout 3 --max-time 8 http://172.16.10.20/
+[КОНЕЦ БЛОКА 124]
+
+
+Проверка: HTTP отвечает; 401 означает запрос авторизации. Если SRV достигает камер, а ADMIN — нет, проверить R2. Правило ADMINS-SRV камеры не разрешает.
+
+ADMIN → Firefox → LuCI R2 → Network → Firewall → Traffic Rules: отдельное существующее правило камер либо Add → Name ADMIN-CAM-WEB → TCP → source ADMINS, 172.16.120.0/24 → destination GRE, отдельные адреса 172.16.10.10 и 172.16.10.20 → ports 80 443 → accept → IPv4 → Save → Save & Apply. Для ping — отдельное аналогичное правило ICMP echo-request. Дубликаты не создавать.
+
+Ideco → Firefox ADMIN → Правила трафика → Файрвол: разрешён SRV 172.16.110.50 → CAM1/CAM2, TCP554; для браузера — ADMIN → CAM1/CAM2, TCP80/443. Проверить порядок правил и авторизацию сети камер как camuser.
+
+
+Как войти на виртуальные камеры
+-------------------------------
+
+HTTP/RTSP нашего образа: lab / Camera-lab-104. Это не системный Linux-пароль.
+
+ADMIN → Firefox: http://172.16.10.10/ либо http://172.16.10.20/ → ввести данные просмотра.
+
+PVE → узел pve → Shell, веб-консоль узла → войти в нужный контейнер:
+
+
+[БЛОК 125 | bash; место ввода указано перед блоком]
+pct enter 996
+[КОНЕЦ БЛОКА 125]
+
+
+Для CAM2 вместо этого:
+
+
+[БЛОК 126 | bash; место ввода указано перед блоком]
+pct enter 997
+[КОНЕЦ БЛОКА 126]
+
+
+Проверка внутри камеры:
+
+
+[БЛОК 127 | bash; место ввода указано перед блоком]
+hostname
+ip -4 -br a
+[КОНЕЦ БЛОКА 127]
+
+
+Это виртуальная адаптация. Переключение Console mode tty → shell может стать отложенным изменением; немедленный вход без остановки оно не гарантирует.
+
+
+Статический адрес виртуальной камеры
+------------------------------------
+
+Внутри нужной Debian-камеры → root. В образе интерфейс eth0 и ifupdown.
+
+
+[БЛОК 128 | bash; место ввода указано перед блоком]
+backup=$(mktemp -d /root/camera-before.XXXXXX)
+cp -a /etc/network/interfaces /etc/hostname /etc/hosts /etc/resolv.conf "$backup/"
+[КОНЕЦ БЛОКА 128]
+
+
+CAM1:
+
+
+[БЛОК 129 | bash; место ввода указано перед блоком]
+cam_ip=172.16.10.10
+cam_name=cam1
+[КОНЕЦ БЛОКА 129]
+
+
+CAM2, в отдельном проходе:
+
+
+[БЛОК 130 | bash; место ввода указано перед блоком]
+cam_ip=172.16.10.20
+cam_name=cam2
+[КОНЕЦ БЛОКА 130]
+
+
+Одинаковые команды для выбранной камеры:
+
+
+[БЛОК 131 | bash; место ввода указано перед блоком]
+ifdown eth0
+[КОНЕЦ БЛОКА 131]
+
+
+
+[БЛОК 132 | bash; место ввода указано перед блоком]
+printf '%s\n' 'auto lo' 'iface lo inet loopback' '' 'auto eth0' 'iface eth0 inet static' "  address $cam_ip/24" '  gateway 172.16.10.1' > /etc/network/interfaces
+[КОНЕЦ БЛОКА 132]
+
+
+
+[БЛОК 133 | bash; место ввода указано перед блоком]
+printf '%s.au-team.abi\n' "$cam_name" > /etc/hostname
+hostname "$cam_name.au-team.abi"
+sed -i '/^127\.0\.1\.1[[:space:]]/d' /etc/hosts
+sed -i "/[[:space:]]${cam_name}\.au-team\.abi\([[:space:]]\|$\)/d" /etc/hosts
+printf '%s %s.au-team.abi %s\n' "$cam_ip" "$cam_name" "$cam_name" >> /etc/hosts
+[КОНЕЦ БЛОКА 133]
+
+
+
+[БЛОК 134 | bash; место ввода указано перед блоком]
+printf '%s\n' 'search au-team.abi' 'nameserver 172.16.10.1' > /etc/resolv.conf
+touch /etc/network/.pve-ignore.interfaces
+touch /etc/.pve-ignore.hostname /etc/.pve-ignore.hosts /etc/.pve-ignore.resolv.conf
+ifup eth0
+[КОНЕЦ БЛОКА 134]
+
+
+Проверка:
+
+
+[БЛОК 135 | bash; место ввода указано перед блоком]
+hostname -f
+ip -4 addr show dev eth0
+ip route
+systemctl is-active camera-lab-media camera-lab-stream camera-lab-web
+[КОНЕЦ БЛОКА 135]
+
+
+Адрес постоянный, шлюз .1, три службы active. Затем exit возвращает на PVE; настроить вторую камеру. После статической настройки обеих камер можно выключить отдельный временный DHCP LAN-CAM, если он включался для подготовки.
+
+
+RTSP до ZoneMinder
+------------------
+
+SRV → терминал. Если FFmpeg отсутствует:
+
+
+[БЛОК 136 | bash; место ввода указано перед блоком]
+apt-get install ffmpeg
+[КОНЕЦ БЛОКА 136]
+
+
+CAM1:
+
+
+[БЛОК 137 | bash; место ввода указано перед блоком]
+rtsp_url=rtsp://lab:Camera-lab-104@172.16.10.10:554/sub
+timeout 12 ffmpeg -nostdin -hide_banner -loglevel error -rtsp_transport tcp -i "$rtsp_url" -frames:v 12 -an -f null -
+echo FRAME_TEST_RC=$?
+[КОНЕЦ БЛОКА 137]
+
+
+CAM2:
+
+
+[БЛОК 138 | bash; место ввода указано перед блоком]
+rtsp_url=rtsp://lab:Camera-lab-104@172.16.10.20:554/sub
+timeout 12 ffmpeg -nostdin -hide_banner -loglevel error -rtsp_transport tcp -i "$rtsp_url" -frames:v 12 -an -f null -
+echo FRAME_TEST_RC=$?
+[КОНЕЦ БЛОКА 138]
+
+
+Проверка: оба FRAME_TEST_RC=0. Потоки /sub нашего образа — H.264 320×180, 5fps, транспорт TCP. Только после этого добавлять источники в ZoneMinder. Для физических камер адрес, RTSP-путь и пароль берутся из их модели и настройки; виртуальные значения не универсальны.
+
+—————————————————————————————————————————————
+
+
+ZoneMinder: краткая рабочая последовательность
+==============================================
+
+SRV → Bash root. Веб-настройки → Firefox на ADMIN. Применяется к ZoneMinder1.36.34 на Альт10.4. При уже созданной базе zm не выполняйте импорт заново; проверяйте состояние и продолжайте с недостающего шага. Если mysql ещё не установлен/запущен, начните с установки пакетов. Файлы конфигурации создаются только отсутствующие, существующие рабочие файлы не заменяются.
+
+Пароль БД: 8–128 латинских букв, цифр и знаков @ . _ -, без пробелов и кавычек. Скрытый ввод двукратный; продолжать только при ZM_SQL_RC=0. Пароль БД и пароль webadmin — разные учётные данные.
+
+SRV → терминал root через консоль или SSH из ADMIN. Веб-настройки → Firefox на ADMIN. Используется Альт Сервер10.4, ZoneMinder1.36.34, MariaDB и отдельный PHP8.1-FPM. Видеосервис имеет собственную базу zm и локальную запись zm@localhost. База сервера Кибер Бэкап — его встроенная SQLite, эти приложения не используют одну базу.
+
+
+1. Определить начальную точку
+-----------------------------
+
+SRV → root:
+
+
+[БЛОК 139 | sh; место ввода указано перед блоком]
+rpm -q zoneminder mariadb-server php8.1-fpm-fcgi
+mysql -NBe "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='zm';"
+mysql -NBe "SELECT User,Host FROM mysql.user WHERE User='zm';"
+[КОНЕЦ БЛОКА 139]
+
+
+
+2. Установить необходимые пакеты
+--------------------------------
+
+SRV → root:
+
+
+[БЛОК 140 | sh; место ввода указано перед блоком]
+apt-get update
+apt-get install zoneminder ffmpeg mariadb-server php8.1-fpm-fcgi
+apt-get install php8.1-mysqli php8.1-gd php8.1-mbstring php8.1-sockets php8.1-openssl
+systemctl enable --now mysqld
+[КОНЕЦ БЛОКА 140]
+
+
+Проверка:
+
+
+[БЛОК 141 | sh; место ввода указано перед блоком]
+rpm -q zoneminder ffmpeg mariadb-server php8.1-fpm-fcgi
+systemctl is-active mysqld
+[КОНЕЦ БЛОКА 141]
+
+
+
+3. Сохранить конфигурации и проверить имена
+-------------------------------------------
+
+SRV → root:
+
+
+[БЛОК 142 | sh; место ввода указано перед блоком]
+zm_backup=/root/before-zm-$(date +%Y%m%d-%H%M%S)
+mkdir -m 700 "$zm_backup"
+cp -a /etc/httpd2 /etc/fpm8.1 /etc/zm "$zm_backup/"
+httpd2 -t
+ipactl status
+[КОНЕЦ БЛОКА 142]
+
+
+SRV → root с билетом IPA admin:
+
+
+[БЛОК 143 | sh; место ввода указано перед блоком]
+kinit admin
+ipa dnsrecord-show au-team.abi video
+[КОНЕЦ БЛОКА 143]
+
+
+
+[БЛОК 144 | sh; место ввода указано перед блоком]
+ipa dnsrecord-add au-team.abi video --a-rec=172.16.110.50
+[КОНЕЦ БЛОКА 144]
+
+
+Проверка на ADMIN:
+
+
+[БЛОК 145 | sh; место ввода указано перед блоком]
+getent hosts video.au-team.abi
+[КОНЕЦ БЛОКА 145]
+
+
+
+4. Создать только новую базу и импортировать схему
+--------------------------------------------------
+
+SRV → root. Выполнять только при отсутствии базы zm:
+
+
+[БЛОК 146 | sh; место ввода указано перед блоком]
+mysql -e 'CREATE DATABASE zm CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;' &&
+mysql zm < /usr/share/zoneminder/db/zm_create.sql
+[КОНЕЦ БЛОКА 146]
+
+
+Проверка:
+
+
+[БЛОК 147 | sh; место ввода указано перед блоком]
+mysql -NBe "SELECT Value FROM zm.Config WHERE Name='ZM_DYN_DB_VERSION';"
+mysql -NBe "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='zm';"
+mysql -NBe "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA='zm';"
+[КОНЕЦ БЛОКА 147]
+
+
+
+5. Создать локальную запись приложения и приватную конфигурацию
+---------------------------------------------------------------
+
+SRV → Bash root. Пароль вводится скрыто, в историю команд его значение не вставляется. Для этого варианта используйте8–128латинских букв, цифр и знаков @ . _ -, без пробелов и кавычек.
+
+
+[БЛОК 148 | bash; место ввода указано перед блоком]
+read -r -s -p 'Пароль БД zm: ' ZM_DB_PASS; echo
+read -r -s -p 'Повторите пароль БД zm: ' ZM_DB_PASS2; echo
+[КОНЕЦ БЛОКА 148]
+
+
+
+[БЛОК 149 | bash; место ввода указано перед блоком]
+if [[ "$ZM_DB_PASS" =~ ^[A-Za-z0-9@._-]{8,128}$ && "$ZM_DB_PASS" == "$ZM_DB_PASS2" ]]; then
+  mysql <<SQL
+CREATE USER 'zm'@'localhost' IDENTIFIED BY '$ZM_DB_PASS';
+GRANT SELECT,INSERT,UPDATE,DELETE ON zm.* TO 'zm'@'localhost';
+UPDATE zm.Config SET Value='1' WHERE Name='ZM_OPT_USE_AUTH';
+UPDATE zm.Config SET Value='builtin' WHERE Name='ZM_AUTH_TYPE';
+SQL
+  ZM_SQL_RC=$?
+else
+  ZM_SQL_RC=1
+  echo 'STOP: пароли не совпали или формат неверен'
+fi
+printf 'ZM_SQL_RC=%s\n' "$ZM_SQL_RC"
+[КОНЕЦ БЛОКА 149]
+
+
+
+[БЛОК 150 | bash; место ввода указано перед блоком]
+if test "$ZM_SQL_RC" = 0; then
+  set -o noclobber
+  umask 077
+  cat > /etc/zm/conf.d/99-local-database.conf <<EOF
+ZM_DB_HOST=localhost:/var/lib/mysql/mysql.sock
+ZM_DB_NAME=zm
+ZM_DB_USER=zm
+ZM_DB_PASS=$ZM_DB_PASS
+ZM_OPT_USE_AUTH=1
+ZM_AUTH_TYPE=builtin
+EOF
+fi
+unset ZM_DB_PASS ZM_DB_PASS2
+[КОНЕЦ БЛОКА 150]
+
+
+
+[БЛОК 151 | sh; место ввода указано перед блоком]
+chown root:_webserver /etc/zm/conf.d/99-local-database.conf
+chmod 0640 /etc/zm/conf.d/99-local-database.conf
+[КОНЕЦ БЛОКА 151]
+
+
+Проверка без вывода паролей:
+
+
+[БЛОК 152 | sh; место ввода указано перед блоком]
+stat -c '%a %U:%G %n' /etc/zm/conf.d/99-local-database.conf
+mysql -u zm -p zm -e 'SELECT CURRENT_USER(),DATABASE();'
+[КОНЕЦ БЛОКА 152]
+
+
+
+6. Создать отдельный PHP-FPM-пул
+--------------------------------
+
+SRV → root:
+
+
+[БЛОК 153 | sh; место ввода указано перед блоком]
+install -d -o apache2 -g apache2 -m 0700 /var/lib/zoneminder/php-sessions
+set -o noclobber
+[КОНЕЦ БЛОКА 153]
+
+
+
+[БЛОК 154 | sh; место ввода указано перед блоком]
+cat > /etc/fpm8.1/php-fpm.d/zoneminder.conf <<'EOF'
+[zoneminder]
+user = apache2
+group = _webserver
+listen = /run/php8.1-fpm/php-zoneminder.sock
+listen.owner = apache2
+listen.group = _webserver
+listen.mode = 0660
+pm = ondemand
+pm.max_children = 2
+pm.process_idle_timeout = 10s
+pm.max_requests = 200
+php_admin_value[memory_limit] = 256M
+php_admin_value[date.timezone] = Europe/Moscow
+php_admin_value[session.save_path] = /var/lib/zoneminder/php-sessions
+php_admin_flag[log_errors] = on
+security.limit_extensions = .php
+EOF
+[КОНЕЦ БЛОКА 154]
+
+
+
+[БЛОК 155 | sh; место ввода указано перед блоком]
+a2enmod proxy_fcgi
+a2enmod cgid
+/usr/sbin/php8.1-fpm -t
+httpd2 -t
+[КОНЕЦ БЛОКА 155]
+
+
+
+[БЛОК 156 | sh; место ввода указано перед блоком]
+systemctl enable --now php8.1-fpm
+systemctl reload php8.1-fpm
+[КОНЕЦ БЛОКА 156]
+
+
+Проверка:
+
+
+[БЛОК 157 | sh; место ввода указано перед блоком]
+stat -c '%a %U:%G %n' /run/php8.1-fpm/php-zoneminder.sock
+[КОНЕЦ БЛОКА 157]
+
+
+
+7. Создать Apache-сайт с сохранением FreeIPA
+--------------------------------------------
+
+SRV → root. Для этого прохода ADMIN имеет адрес 172.16.120.86. Если DHCP выдал другой IP, замените это значение в трёх разрешениях ниже до применения файла. Прочитайте текущий IP командой ip -4 -br address в терминале ADMIN.
+
+
+[БЛОК 158 | sh; место ввода указано перед блоком]
+httpd2 -S
+test -f /etc/httpd2/conf/extra-enabled/ipa-rewrite.conf
+set -o noclobber
+[КОНЕЦ БЛОКА 158]
+
+
+
+[БЛОК 159 | sh; место ввода указано перед блоком]
+cat > /etc/httpd2/conf/sites-available/000-00-ipa-preserved-and-video80.conf <<'EOF'
+<VirtualHost *:80>
+    ServerName srv.au-team.abi
+    ServerAlias ipa-ca.au-team.abi
+    Include "/etc/httpd2/conf/extra-enabled/ipa-rewrite.conf"
+</VirtualHost>
+
+<VirtualHost *:80>
+    ServerName video.au-team.abi
+    DocumentRoot "/usr/share/zoneminder/www"
+    DirectoryIndex index.php
+    RewriteEngine On
+    RewriteOptions IgnoreInherit
+    RewriteRule ^/?$ /zm/ [R=302,L]
+    RewriteCond %{REQUEST_URI} !^/(?:zm(?:/|$)|cgi-bin-zm(?:/|$))
+    RewriteRule ^ - [F,L]
+    Alias "/zm/cache/" "/var/cache/zoneminder/"
+    Alias "/zm" "/usr/share/zoneminder/www"
+    ScriptAlias "/cgi-bin-zm/" "/usr/lib/zoneminder/cgi-bin/"
+    <Directory "/usr/share/zoneminder/www">
+        Options -Indexes +FollowSymLinks -ExecCGI
+        AllowOverride None
+        <RequireAny>
+            Require local
+            Require ip 172.16.120.86
+        </RequireAny>
+        <FilesMatch "\.php$">
+            SetHandler "proxy:unix:/run/php8.1-fpm/php-zoneminder.sock|fcgi://localhost/"
+        </FilesMatch>
+    </Directory>
+    <Directory "/var/cache/zoneminder">
+        Options -Indexes +FollowSymLinks -ExecCGI
+        AllowOverride None
+        Require local
+        <FilesMatch "\.(?:css|js)$">
+            AuthMerging Off
+            <RequireAny>
+                Require local
+                Require ip 172.16.120.86
+            </RequireAny>
+        </FilesMatch>
+    </Directory>
+    <Directory "/usr/lib/zoneminder/cgi-bin">
+        Options +ExecCGI -Indexes -MultiViews
+        AllowOverride None
+        <RequireAny>
+            Require local
+            Require ip 172.16.120.86
+        </RequireAny>
+    </Directory>
+</VirtualHost>
+EOF
+[КОНЕЦ БЛОКА 159]
+
+
+
+[БЛОК 160 | sh; место ввода указано перед блоком]
+ln -s ../sites-available/000-00-ipa-preserved-and-video80.conf /etc/httpd2/conf/sites-enabled/000-00-ipa-preserved-and-video80.conf
+httpd2 -t
+httpd2 -S
+[КОНЕЦ БЛОКА 160]
+
+
+
+[БЛОК 161 | sh; место ввода указано перед блоком]
+systemctl reload httpd2
+[КОНЕЦ БЛОКА 161]
+
+
+Проверка на ADMIN:
+
+
+[БЛОК 162 | sh; место ввода указано перед блоком]
+curl -I --max-time 10 http://video.au-team.abi/zm/
+curl -I --max-time 10 https://srv.au-team.abi/ipa/ui/
+[КОНЕЦ БЛОКА 162]
+
+
+
+8. Первый вход, пароль, язык и часовой пояс
+-------------------------------------------
+
+ADMIN → Firefox → http://video.au-team.abi/zm/.
+
+1. При исходной схеме используется штатный первый вход admin / admin. Он относится только к новой неизменённой схеме.
+2. Сразу откройте Options → Users → admin, задайте новый пароль, повторите и сохраните. Выйдите и войдите новым паролем.
+3. Options → System: LANG_DEFAULT = ru_ru, TIMEZONE = Europe/Moscow, OPT_USE_AUTH включён, тип аутентификации builtin. Сохраните.
+4. Если поле AUTH_HASH_SECRET пустое, задайте собственную случайную строку и сохраните; не включайте её в снимок.
+
+Проверка: повторный вход новым паролем успешен, интерфейс русский, московское время установлено.
+
+
+9. Создать хранилище Video
+--------------------------
+
+SRV → root:
+
+
+[БЛОК 163 | sh; место ввода указано перед блоком]
+install -d -o apache2 -g _webserver -m 0750 /srv/video
+runuser -u apache2 -- test -w /srv/video
+[КОНЕЦ БЛОКА 163]
+
+
+ADMIN → Firefox → ZoneMinder → Опции → Storage → Добавить новое хранилище.
+
+
+Поле | Значение
+Имя | Video
+Путь | /srv/video
+Тип | local
+Схема | Medium
+Включено | Да
+Разрешить удаление | Да, для будущих фильтров хранения
+
+
+Проверка: Video присутствует в списке с путём /srv/video; системная проверка записи завершилась без ошибки.
+
+
+10. Добавить cam1 и cam2
+------------------------
+
+Условие: для виртуальных камер /sub — 320×180,5fps,TCP. Для физической камеры использовать её подтверждённый RTSP-путь и фактическое разрешение.
+
+ADMIN → Firefox → ZoneMinder → Консоль → Добавить. Для каждой камеры заполните:
+
+
+Вкладка / поле | cam1 | cam2
+Основные → Имя | cam1 | cam2
+Основные → Тип источника | Ffmpeg | Ffmpeg
+Основные → Функция | Modect | Modect
+Основные → Включено | Да | Да
+Источник → Source Path | rtsp://172.16.10.10:554/sub | rtsp://172.16.10.20:554/sub
+Источник → Method | TCP | TCP
+Источник → Username/Password | Существующие данные камеры | Существующие данные камеры
+Источник → Цвет | 24-битный | 24-битный
+Источник → Ширина×высота | 320×180 для /sub | 320×180 для /sub
+Storage → Storage Area | Video | Video
+Storage → Save JPEGs | Frames + Analysis images | Frames + Analysis images
+Storage → Video Writer | Camera Passthrough | Camera Passthrough
+
+
+Проверка: откройте по имени cam1 и cam2: изображения различаются, внутри виртуальных кадров видны правильные метки CAM1/CAM2, а не два потока CAM1.
+
+Действие при отсутствии отдельных полей Username/Password: вписать в GUI Source Path адрес rtsp://логин:пароль@IP:554/sub, без снимка заполненного поля. Специальные URI-символы пароля URL-кодировать. При копировании cam1 в cam2 заменить IP источника. Maximum FPS и Alarm Maximum FPS оставить пустыми.
+
+
+11. Создать зоны активации записи
+---------------------------------
+
+ADMIN → Firefox → ZoneMinder → Консоль → строка cam1 → Зоны → существующая зона/Добавить.
+
+1. Имя — Motion-center.
+2. Тип — Active.
+3. Нарисуйте область, внутри которой движение должно запускать запись.
+4. Для виртуального кадра320×180 можно использовать точки 32,36 287,36 287,161 32,161.
+5. Выберите подходящий начальный Preset чувствительности, сохраните.
+6. Повторите для cam2; для другого разрешения зоны рисуйте по его кадру.
+
+Проверка: движение внутри зоны создаёт тревожное событие с AlarmFrames, запись воспроизводится. Отдельно проверьте движение вне зоны: оно не должно само по себе запускать запись этой зоны.
+
+
+12. Запустить службу и проверить запись
+---------------------------------------
+
+SRV → root:
+
+
+[БЛОК 164 | sh; место ввода указано перед блоком]
+systemctl enable --now zoneminder
+systemctl is-active zoneminder
+runuser -u apache2 -- /usr/bin/zmdc.pl status
+[КОНЕЦ БЛОКА 164]
+
+
+ADMIN → Firefox → ZoneMinder → Консоль: убедитесь, что режим работы Running. Создайте движение в зоне каждой камеры. Затем строка камеры → События → завершённое событие → Replay/Воспроизведение.
+
+Проверка: у каждой камеры есть собственное завершённое событие с кадрами; прогресс воспроизведения увеличивается. На SRV найдены непустые файлы:
+
+
+[БЛОК 165 | sh; место ввода указано перед блоком]
+find /srv/video -type f -name '*.mp4' -size +0c | head
+[КОНЕЦ БЛОКА 165]
+
+
+
+[БЛОК 166 | sh; место ввода указано перед блоком]
+journalctl -u zoneminder -n 30 --no-pager
+[КОНЕЦ БЛОКА 166]
+
+
+
+13. Фильтры хранения7 и14 дней
+------------------------------
+
+ADMIN → Firefox → ZoneMinder → Фильтры → Новый фильтр. Создайте два отдельных фильтра. Используйте фактический ID камеры из её строки/карточки, а не старый ID из чужого прохода.
+
+
+Параметр | cam1-retain-7d | cam2-retain-14d
+Камера / MonitorId | ID cam1 | ID cam2
+Логика | Все условия AND | Все условия AND
+Дата/время окончания | IS NOT NULL | IS NOT NULL
+Дата/время окончания | меньше -7 days | меньше -14 days
+Storage | Video | Video
+Действие | Удалить выбранное / Delete all matches | Удалить выбранное / Delete all matches
+Фоновое выполнение / Background | Включено после проверки выборки | Включено после проверки выборки
+Выполнить внешнюю команду / AutoExecute | Выключено | Выключено
+
+
+Проверка: повторно откройте оба фильтра: разные сроки7/14, правильные ID камер, StorageVideo, EndDateTime IS NOT NULL, AutoDelete и Background включены. Выжидание7/14 дней не требуется для проверки сохранённых условий, но фактическое удаление старых событий проверяется отдельно.
+
+Действие для каждого фильтра: сначала сохранить только условия → Список совпадений / List matches → проверить камеру, Storage и возраст завершённых событий. Затем включить Удалить выбранное / Delete all matches и Фоновое выполнение / Background → Сохранить. AutoExecute оставить выключенным. Просроченные записи удаляются безвозвратно.
+
+
+Открытые источники
+------------------
+
+• ZoneMinder1.36.34: первый вход, время и источники (https://raw.githubusercontent.com/ZoneMinder/zoneminder/1.36.34/docs/userguide/gettingstarted.rst).
+• FFmpeg-источники и транспортTCP (https://zoneminder.readthedocs.io/en/stable/userguide/definemonitor/definemonitor_source.html).
+• Зоны движения (https://github.com/ZoneMinder/zoneminder/blob/1.36.34/docs/userguide/definezone.rst).
+• Фильтры событий и относительные даты (https://zoneminder.readthedocs.io/en/stable/userguide/filterevents.html).
+• Apache: обработчик PHP-FPM (https://httpd.apache.org/docs/2.4/mod/mod_proxy_fcgi.html).
+
+
+Итоговая проверка
+-----------------
+
+Условие готовности: живые кадры обеих камер, зоны Active создают запись, события воспроизводятся, файлы в /srv/video, отдельные фильтры7/14дней только по EndDateTime завершённых событий, русский язык и Europe/Moscow, веб-доступ video.au-team.abi/zm/.
+
+—————————————————————————————————————————————
+
+
+Принтер: короткий рабочий порядок
+=================================
+
+Для физического МФУ используйте разделы до виртуального CT. Для CT 993 выполните общие блоки «CUPS и пользователь» и «Журналы и 50 заданий», затем последний раздел CT 993 и блок пробной печати; модельный драйвер физической «Катюши» не устанавливается.
+
+
+Адрес и драйвер
+---------------
+
+Панель/веб-интерфейс физического МФУ «Катюша» → Сеть/TCP-IP: статический IP 172.16.100.100, маска 255.255.255.0, шлюз 172.16.100.1, имя print, FQDN print.au-team.abi, если поле поддерживается.
+
+Прочитать точную модель → ADMIN → Firefox → центр загрузок «Катюша» (https://www.katusha-it.ru/downloads) → своя модель → Linux/Альт → установить драйвер по её руководству. Установщик/PPD и протокол зависят от модели.
+
+
+CUPS и пользователь
+-------------------
+
+ADMIN → терминал root, проверить hostname -f, не выполнять на SRV:
+
+
+[БЛОК 167 | bash; место ввода указано перед блоком]
+apt-get update
+apt-get install cups cups-filters
+systemctl enable --now cups
+grep -q '^print:' /etc/passwd || useradd -m print
+passwd print
+[КОНЕЦ БЛОКА 167]
+
+
+На два скрытых запроса — пароль задания P@ssw0rd, английская раскладка.
+
+
+Журналы и 50 заданий
+--------------------
+
+ADMIN → тот же терминал root:
+
+
+[БЛОК 168 | bash; место ввода указано перед блоком]
+backup=$(mktemp -d /root/cups-before.XXXXXX)
+cp -a /etc/cups/cupsd.conf /etc/cups/cups-files.conf "$backup/"
+mkdir -p /srv/printerLogs
+chown --reference=/var/log/cups /srv/printerLogs
+chmod --reference=/var/log/cups /srv/printerLogs
+[КОНЕЦ БЛОКА 168]
+
+
+
+[БЛОК 169 | bash; место ввода указано перед блоком]
+sed -i -E '/^[[:space:]]*(MaxJobs|PreserveJobHistory|PageLogFormat)[[:space:]]/d' /etc/cups/cupsd.conf
+[КОНЕЦ БЛОКА 169]
+
+
+
+[БЛОК 170 | bash; место ввода указано перед блоком]
+printf '%s\n' 'MaxJobs 50' 'PreserveJobHistory Yes' 'PageLogFormat %p %u %j %T %P %C' >> /etc/cups/cupsd.conf
+[КОНЕЦ БЛОКА 170]
+
+
+
+[БЛОК 171 | bash; место ввода указано перед блоком]
+sed -i -E '/^[[:space:]]*(AccessLog|ErrorLog|PageLog)[[:space:]]/d' /etc/cups/cups-files.conf
+[КОНЕЦ БЛОКА 171]
+
+
+
+[БЛОК 172 | bash; место ввода указано перед блоком]
+printf '%s\n' 'AccessLog /srv/printerLogs/access_log' 'ErrorLog /srv/printerLogs/error_log' 'PageLog /srv/printerLogs/page_log' >> /etc/cups/cups-files.conf
+[КОНЕЦ БЛОКА 172]
+
+
+
+[БЛОК 173 | bash; место ввода указано перед блоком]
+env -u TMPDIR cupsd -t && systemctl restart cups
+[КОНЕЦ БЛОКА 173]
+
+
+Проверка: два файла конфигурации OK, cups active. Не продолжать при ошибке синтаксиса.
+
+
+Очередь print для физического МФУ
+---------------------------------
+
+ADMIN → терминал root, после установки фирменного драйвера:
+
+
+[БЛОК 174 | bash; место ввода указано перед блоком]
+lpinfo -m | grep -iE 'katusha|катюша'
+lpinfo -v
+[КОНЕЦ БЛОКА 174]
+
+
+Подтверждённый RAW9100: socket://172.16.100.100:9100 + точный драйвер. IPP: точный URI аппарата + требуемый драйвер. everywhere выбирать только при подтверждённом IPP Everywhere, не для любого IPP. LPD: URI с настоящим именем очереди из руководства.
+
+
+[БЛОК 175 | bash; место ввода указано перед блоком]
+read -r -p 'Подтверждённый URI: ' printer_uri
+read -r -p 'Первый столбец модели lpinfo -m: ' printer_model
+lpadmin -p print -E -v "$printer_uri" -m "$printer_model"
+[КОНЕЦ БЛОКА 175]
+
+
+
+Печать и результат
+------------------
+
+ADMIN → терминал root:
+
+
+[БЛОК 176 | bash; место ввода указано перед блоком]
+su - print -c 'lp -d print /usr/share/cups/data/testprint'
+lpstat -v print
+lpstat -W completed -o print
+ls -l /srv/printerLogs
+tail -n 5 /srv/printerLogs/page_log
+[КОНЕЦ БЛОКА 176]
+
+
+Проверка: бумажный лист вышел, задание завершено от print, три отдельных журнала существуют. При ошибке один следующий шаг:
+
+
+[БЛОК 177 | bash; место ввода указано перед блоком]
+tail -n 40 /srv/printerLogs/error_log
+[КОНЕЦ БЛОКА 177]
+
+
+
+Только для уже подготовленного виртуального CT 993
+--------------------------------------------------
+
+Это PDF-принтер, не аппаратная «Катюша». Если адрес CT ещё исходный, настройте его так.
+
+PVE → узел pve → Shell, веб-консоль узла:
+
+
+[БЛОК 178 | bash; место ввода указано перед блоком]
+pct enter 993
+[КОНЕЦ БЛОКА 178]
+
+
+Внутри Debian CT 993 → root, интерфейс eth0/ifupdown:
+
+
+[БЛОК 179 | bash; место ввода указано перед блоком]
+backup=$(mktemp -d /root/printer-before.XXXXXX)
+cp -a /etc/network/interfaces /etc/hostname /etc/hosts /etc/cups/cupsd.conf "$backup/"
+ifdown eth0
+[КОНЕЦ БЛОКА 179]
+
+
+
+[БЛОК 180 | bash; место ввода указано перед блоком]
+printf '%s\n' 'auto lo' 'iface lo inet loopback' '' 'auto eth0' 'iface eth0 inet static' '  address 172.16.100.100/24' '  gateway 172.16.100.1' > /etc/network/interfaces
+[КОНЕЦ БЛОКА 180]
+
+
+
+[БЛОК 181 | bash; место ввода указано перед блоком]
+hostnamectl set-hostname print.au-team.abi
+grep -q '172.16.100.100.*print.au-team.abi' /etc/hosts || printf '%s\n' '172.16.100.100 print.au-team.abi print' >> /etc/hosts
+touch /etc/network/.pve-ignore.interfaces /etc/.pve-ignore.hostname /etc/.pve-ignore.hosts
+[КОНЕЦ БЛОКА 181]
+
+
+
+[БЛОК 182 | bash; место ввода указано перед блоком]
+sed -i 's@Allow from 192.168.1.0/24@Allow from 172.16.120.0/24@' /etc/cups/cupsd.conf
+cupsd -t && systemctl restart cups
+ifup eth0
+ip -4 -br a
+lpstat -p -v
+exit
+[КОНЕЦ БЛОКА 182]
+
+
+Проверка: CT имеет 172.16.100.100/24, шлюз 172.16.100.1, очередь LabPrinter уже подготовлена в образе. ADMIN подключён к сети принтера через разрешение ADMINS → PRINT на R2.
+
+ADMIN → терминал root:
+
+
+[БЛОК 183 | bash; место ввода указано перед блоком]
+lpadmin -p print -E -v ipp://172.16.100.100:631/printers/LabPrinter -m everywhere
+[КОНЕЦ БЛОКА 183]
+
+
+Затем тот же тест печати от print и чтение журналов. ADMIN → Firefox → http://172.16.100.100:8080/ → открыть PDF своего задания.
+
+—————————————————————————————————————————————
+
+
+Итог R2 — проверка без повторной прошивки
+=========================================
+
+R2 → SSH из ADMIN, root:
+
+
+[БЛОК 184 | sh; место ввода указано перед блоком]
+ubus call system board
+swconfig dev switch0 show
+[КОНЕЦ БЛОКА 184]
+
+
+
+[БЛОК 185 | sh; место ввода указано перед блоком]
+hostname
+uci get system.@system[0].hostname
+[КОНЕЦ БЛОКА 185]
+
+
+Оба имени — r2.au-team.abi; FQDN всех устройств используют один домен au-team.abi.
+
+
+[БЛОК 186 | sh; место ввода указано перед блоком]
+ip -4 -br addr
+ip -4 route
+fw4 check
+[КОНЕЦ БЛОКА 186]
+
+
+Проверка: версия 25.12.6 в учебной VM, VLAN 2/100/120, LAN 172.16.120.1/24, PRINT 172.16.100.1/24, WAN с default route, firewall без ошибок.
+
+ADMIN → локальный терминал:
+
+
+[БЛОК 187 | sh; место ввода указано перед блоком]
+ping -c 3 -W 2 172.16.110.50
+getent ahostsv4 srv.au-team.abi
+[КОНЕЦ БЛОКА 187]
+
+
+
+[БЛОК 188 | sh; место ввода указано перед блоком]
+getent ahostsv4 r2.au-team.abi
+getent ahostsv4 fw.au-team.abi
+getent ahostsv4 admin.au-team.abi
+[КОНЕЦ БЛОКА 188]
+
+
+
+[БЛОК 189 | sh; место ввода указано перед блоком]
+getent ahostsv4 cam1.au-team.abi
+getent ahostsv4 cam2.au-team.abi
+getent ahostsv4 print.au-team.abi
+[КОНЕЦ БЛОКА 189]
+
+
+Ожидаемые адреса: SRV 172.16.110.50, CAM1 172.16.10.10, CAM2 172.16.10.20, PRINT 172.16.100.100. Успешный DNS не доказывает разрешение ICMP.
+
+Firefox ADMIN → R2 → System → Backup / Flash Firmware → Generate archive: скачать итоговые настройки отдельно от открытой методички.
+
+Проверка: архив появился в загрузках. При ошибке связи ADMIN → SRV следующий шаг — проверить узкое правило ADMINS-SRV, а не отключать firewall.
